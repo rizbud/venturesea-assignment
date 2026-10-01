@@ -3,7 +3,7 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { AppError } from "@ledgerlab/shared";
-import { apiSecurityHeaders, rateLimit } from "@ledgerlab/shared/http";
+import { apiSecurityHeaders, rateLimit, requireOriginSecret } from "@ledgerlab/shared/http";
 import type { ReportingService } from "./services/reporting-service";
 import { healthRoutes } from "./routes/health";
 import { reportRoutes } from "./routes/reports";
@@ -13,17 +13,21 @@ export interface CreateAppOptions {
   corsOrigins?: string[];
   /** Requests per minute per client IP on /api/*. Reports are heavier than ledger reads. */
   rateLimitPerMinute?: number;
+  /** When set, every request except /health must carry it in X-Origin-Secret (added by Cloudflare). */
+  originSecret?: string;
 }
 
 export function createReportingApp({
   service,
   corsOrigins = ["*"],
   rateLimitPerMinute = 120,
+  originSecret,
 }: CreateAppOptions): Hono {
   const app = new Hono();
 
   if (process.env.NODE_ENV !== "test") app.use("*", logger());
   app.use("*", apiSecurityHeaders());
+  app.use("*", requireOriginSecret(originSecret));
   app.use(
     "*",
     cors({

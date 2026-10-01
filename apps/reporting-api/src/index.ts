@@ -13,7 +13,12 @@ const rateLimitPerMinute = Number(process.env.RATE_LIMIT_PER_MINUTE ?? 120);
 
 const source = new LedgerClient({ baseUrl: ledgerUrl, internalToken });
 const service = new ReportingService(source);
-const app = createReportingApp({ service, corsOrigins, rateLimitPerMinute });
+const app = createReportingApp({
+  service,
+  corsOrigins,
+  rateLimitPerMinute,
+  originSecret: process.env.ORIGIN_SECRET?.trim() || undefined,
+});
 
 const server = serve({ fetch: app.fetch, port, hostname }, (info) => {
   console.log(`[reporting-api] listening on http://${info.address}:${info.port} (ledger: ${ledgerUrl})`);

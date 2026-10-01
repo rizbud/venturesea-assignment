@@ -3,7 +3,7 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { AppError, errorResponseSchema } from "@ledgerlab/shared";
-import { apiSecurityHeaders, limitBody, rateLimit } from "@ledgerlab/shared/http";
+import { apiSecurityHeaders, limitBody, rateLimit, requireOriginSecret } from "@ledgerlab/shared/http";
 import type { LedgerService } from "./services/ledger-service";
 import { accountRoutes } from "./routes/accounts";
 import { healthRoutes } from "./routes/health";
@@ -19,6 +19,8 @@ export interface CreateAppOptions {
   internalToken?: string;
   /** Requests per minute per client IP on public /api/* routes. */
   rateLimitPerMinute?: number;
+  /** When set, every request except /health must carry it in X-Origin-Secret (added by Cloudflare). */
+  originSecret?: string;
 }
 
 export function createLedgerApp({
@@ -26,11 +28,13 @@ export function createLedgerApp({
   corsOrigins = ["*"],
   internalToken,
   rateLimitPerMinute = 300,
+  originSecret,
 }: CreateAppOptions): Hono {
   const app = new Hono();
 
   if (process.env.NODE_ENV !== "test") app.use("*", logger());
   app.use("*", apiSecurityHeaders());
+  app.use("*", requireOriginSecret(originSecret));
   app.use(
     "*",
     cors({

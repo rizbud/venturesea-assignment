@@ -103,3 +103,23 @@ export function rateLimit({ max, windowMs = 60_000 }: { max: number; windowMs?: 
     await next();
   };
 }
+
+/**
+ * Origin lock for platforms that cannot restrict ingress to Cloudflare (Render
+ * has no IP allowlist or mTLS origin pulls). A Cloudflare request-header
+ * Transform Rule adds `X-Origin-Secret`; requests without it, i.e. anyone
+ * calling the *.onrender.com URL directly and skipping the WAF, get 403.
+ * `/health` stays open for the platform's own health checks, and
+ * `/api/internal/*` for service-to-service calls on the private network (those
+ * never pass through Cloudflare and are token-guarded). No-op when unset.
+ */
+export function requireOriginSecret(secret: string | undefined): MiddlewareHandler {
+  return async (c, next) => {
+    if (!secret || c.req.path === "/health" || c.req.path.startsWith("/api/internal/")) return next();
+    const given = c.req.header("x-origin-secret");
+    if (!given || !tokensMatch(given, secret)) {
+      return c.json({ error: { code: "FORBIDDEN", message: "Direct origin access is not allowed" } }, 403);
+    }
+    return next();
+  };
+}

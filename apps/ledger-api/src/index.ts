@@ -23,6 +23,7 @@ const app = createLedgerApp({
   corsOrigins,
   internalToken,
   rateLimitPerMinute,
+  originSecret: process.env.ORIGIN_SECRET?.trim() || undefined,
 });
 
 const server = serve({ fetch: app.fetch, port, hostname }, (info) => {

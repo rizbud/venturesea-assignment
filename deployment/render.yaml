@@ -55,6 +55,10 @@ services:
         sync: false # set to your dashboard origin, e.g. https://ledgerlab.example.com
       - key: INTERNAL_API_TOKEN
         generateValue: true
+      # Cloudflare origin lock (deployment/cloudflare/README.md §2). Leave empty until
+      # the domain is live; once set, direct *.onrender.com calls get 403.
+      - key: ORIGIN_SECRET
+        sync: false
 
   # ------------------------------------------------------------- reporting API
   - type: web
@@ -82,6 +86,8 @@ services:
           name: ledgerlab-ledger-api
           envVarKey: INTERNAL_API_TOKEN
       - key: CORS_ORIGINS
+        sync: false
+      - key: ORIGIN_SECRET
         sync: false
 
   # --------------------------------------------------------------- dashboard

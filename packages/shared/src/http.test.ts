@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { Hono } from "hono";
-import { corsOriginsFromEnv, internalTokenFromEnv, rateLimit, tokensMatch } from "./http";
+import {
+  corsOriginsFromEnv,
+  internalTokenFromEnv,
+  rateLimit,
+  requireOriginSecret,
+  tokensMatch,
+} from "./http";
 
 describe("production configuration guards", () => {
   it("refuses wildcard or missing CORS origins in production, allows them in dev", () => {
@@ -51,5 +57,38 @@ describe("rateLimit", () => {
     const a = app(1);
     expect((await a.request("/", from("9.9.9.9"))).status).toBe(200);
     expect((await a.request("/", from("6.6.6.6, 9.9.9.9"))).status).toBe(429);
+  });
+});
+
+describe("requireOriginSecret", () => {
+  function app(secret: string | undefined) {
+    const a = new Hono();
+    a.use("*", requireOriginSecret(secret));
+    a.get("/health", (c) => c.text("ok"));
+    a.get("/api/x", (c) => c.text("ok"));
+    return a;
+  }
+
+  it("blocks direct origin calls without the edge-added header, keeps /health open", async () => {
+    const a = app("edge-secret-value");
+    expect((await a.request("/api/x")).status).toBe(403);
+    expect((await a.request("/api/x", { headers: { "x-origin-secret": "wrong" } })).status).toBe(403);
+    expect((await a.request("/api/x", { headers: { "x-origin-secret": "edge-secret-value" } })).status).toBe(
+      200,
+    );
+    expect((await a.request("/health")).status).toBe(200);
+  });
+
+  it("is a no-op when no secret is configured", async () => {
+    expect((await app(undefined).request("/api/x")).status).toBe(200);
+  });
+});
+
+describe("requireOriginSecret exemptions", () => {
+  it("lets token-guarded internal calls through without the edge header", async () => {
+    const a = new Hono();
+    a.use("*", requireOriginSecret("edge-secret-value"));
+    a.get("/api/internal/account-totals", (c) => c.text("ok"));
+    expect((await a.request("/api/internal/account-totals")).status).toBe(200);
   });
 });
