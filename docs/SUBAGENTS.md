@@ -26,8 +26,8 @@ of done. Good sub-agents:
 
 ## What you must do
 
-- [ ] Keep **at least three** working agents (they may be the starters, improved).
-- [ ] Add **at least one** agent of your own that fits your workflow. Likely candidates:
+- [x] Keep **at least three** working agents (they may be the starters, improved).
+- [x] Add **at least one** agent of your own that fits your workflow. Likely candidates:
 
 | Suggested agent      | Job                                                                        |
 | -------------------- | -------------------------------------------------------------------------- |
@@ -37,10 +37,15 @@ of done. Good sub-agents:
 | `api-contract`       | Keeps the API surface, Zod schemas, and OpenAPI in sync                    |
 | `perf-probe`         | Load-tests an endpoint and reports p50/p95 before and after                |
 
-- [ ] Write, for each agent, the exact prompt you used and the outcome — logged
-      via `pnpm ai:log` with `--subagent <name>`.
-- [ ] Demonstrate at least one agent **catching a real defect** and the fix
+- [x] Write, for each agent, the exact prompt you used and the outcome — logged
+      via `pnpm ai:log` with `--subagent <name>`. (Three agents demonstrated;
+      `ledger-architect`, `db-migrator`, `ui-unslop` not yet; see the evidence.)
+- [x] Demonstrate at least one agent **catching a real defect** and the fix
       that followed.
+
+**Status (2026-10-01):** six agents in `.opencode/agent/`. Demo runs, prompts,
+findings and the fixes they led to are in
+[`evidence/G8-subagents.md`](evidence/G8-subagents.md).
 
 ## Format
 

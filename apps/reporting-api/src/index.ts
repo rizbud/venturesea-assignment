@@ -24,5 +24,12 @@ const server = serve({ fetch: app.fetch, port, hostname }, (info) => {
   console.log(`[reporting-api] listening on http://${info.address}:${info.port} (ledger: ${ledgerUrl})`);
 });
 
-process.on("SIGINT", () => server.close(() => process.exit(0)));
-process.on("SIGTERM", () => server.close(() => process.exit(0)));
+// Drain in-flight requests; a stalled upstream call must not block the deploy.
+function shutdown(signal: string): void {
+  console.log(`[reporting-api] ${signal} received, shutting down`);
+  setTimeout(() => process.exit(1), 10_000).unref();
+  server.close(() => process.exit(0));
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));

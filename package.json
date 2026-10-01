@@ -12,7 +12,6 @@
     "build": "turbo run build",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
-    "lint": "turbo run lint",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "ai:log": "node scripts/log-ai-prompt.mjs",
