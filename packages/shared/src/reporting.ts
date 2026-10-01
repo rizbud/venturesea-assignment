@@ -1,20 +1,27 @@
 import type { BalanceSheet, IncomeStatement, TrialBalance, TrialBalanceRow } from "./domain";
-import type { PostingRow } from "./repository";
+import type { AccountTotals, DateRange, PostingRow } from "./repository";
 import { sumMinor } from "./money";
 
-const POSTED = "POSTED";
+/*
+ * Reports are built from per-account totals (gross debits and credits), not from
+ * raw postings. Postgres computes the totals with one GROUP BY, so a report costs
+ * the same whether the ledger holds a hundred lines or a million. `accountTotals`
+ * below is the in-memory reference implementation of that query.
+ */
 
-function isPosted(row: PostingRow): boolean {
-  return row.entryStatus === POSTED;
-}
-
-/** Accumulate debit/credit totals per account from a flat posting list. */
-function aggregate(postings: readonly PostingRow[]): Map<string, TrialBalanceRow> {
+/**
+ * Per-account gross debit/credit totals over POSTED entries in an inclusive date
+ * range, plus the number of distinct entries counted.
+ */
+export function accountTotals(postings: readonly PostingRow[], range: DateRange = {}): AccountTotals {
   const byAccount = new Map<string, TrialBalanceRow>();
+  const entries = new Set<string>();
   for (const posting of postings) {
-    if (!isPosted(posting)) continue;
-    const existing = byAccount.get(posting.accountId);
-    const row: TrialBalanceRow = existing ?? {
+    if (posting.entryStatus !== "POSTED") continue;
+    if (range.from && posting.entryDate < range.from) continue;
+    if (range.to && posting.entryDate > range.to) continue;
+    entries.add(posting.entryId);
+    const row = byAccount.get(posting.accountId) ?? {
       accountId: posting.accountId,
       code: posting.accountCode,
       name: posting.accountName,
@@ -24,55 +31,46 @@ function aggregate(postings: readonly PostingRow[]): Map<string, TrialBalanceRow
       balanceMinor: 0,
     };
     if (posting.amountMinor > 0) row.debitMinor += posting.amountMinor;
-    else row.creditMinor += Math.abs(posting.amountMinor);
+    else row.creditMinor -= posting.amountMinor;
     row.balanceMinor = row.debitMinor - row.creditMinor;
     byAccount.set(posting.accountId, row);
   }
-  return byAccount;
+  return { rows: [...byAccount.values()], entryCount: entries.size };
 }
 
 function sortRows(rows: TrialBalanceRow[]): TrialBalanceRow[] {
-  return rows.sort((a, b) => a.code.localeCompare(b.code));
+  return [...rows].sort((a, b) => a.code.localeCompare(b.code));
+}
+
+/** Credit-normal accounts read as `credit - debit`. */
+function creditNormal(rows: TrialBalanceRow[]): TrialBalanceRow[] {
+  return rows.map((r) => ({ ...r, balanceMinor: -r.balanceMinor }));
 }
 
 /**
- * Trial balance: every account's debit/credit totals. The fundamental check is
- * totalDebit === totalCredit.
+ * Trial balance from account totals for everything up to `asOf`. The
+ * fundamental check is totalDebit === totalCredit.
  */
-export function buildTrialBalance(postings: readonly PostingRow[], asOf: string): TrialBalance {
-  const scoped = postings.filter((p) => p.entryDate <= asOf);
-  const rows = sortRows([...aggregate(scoped).values()]);
-  const totalDebitMinor = sumMinor(rows.map((r) => r.debitMinor));
-  const totalCreditMinor = sumMinor(rows.map((r) => r.creditMinor));
+export function trialBalanceFromTotals(rows: readonly TrialBalanceRow[], asOf: string): TrialBalance {
+  const sorted = sortRows([...rows]);
+  const totalDebitMinor = sumMinor(sorted.map((r) => r.debitMinor));
+  const totalCreditMinor = sumMinor(sorted.map((r) => r.creditMinor));
   return {
     asOf,
-    rows,
+    rows: sorted,
     totalDebitMinor,
     totalCreditMinor,
     balanced: totalDebitMinor === totalCreditMinor,
   };
 }
 
-function inRange(date: string, from: string, to: string): boolean {
-  return date >= from && date <= to;
-}
-
-/**
- * Income statement for a period. Revenue accounts are credit-normal, so their
- * natural amount is `credit - debit` (i.e. -balanceMinor); expenses are the
- * opposite.
- */
-export function buildIncomeStatement(
-  postings: readonly PostingRow[],
+/** Income statement from account totals for exactly the period `from`..`to`. */
+export function incomeStatementFromTotals(
+  rows: readonly TrialBalanceRow[],
   from: string,
   to: string,
 ): IncomeStatement {
-  const scoped = postings.filter((p) => isPosted(p) && inRange(p.entryDate, from, to));
-  const rows = [...aggregate(scoped).values()];
-  const revenue = sortRows(rows.filter((r) => r.type === "REVENUE")).map((r) => ({
-    ...r,
-    balanceMinor: -r.balanceMinor,
-  }));
+  const revenue = creditNormal(sortRows(rows.filter((r) => r.type === "REVENUE")));
   const expenses = sortRows(rows.filter((r) => r.type === "EXPENSE"));
   const totalRevenueMinor = sumMinor(revenue.map((r) => r.balanceMinor));
   const totalExpensesMinor = sumMinor(expenses.map((r) => r.balanceMinor));
@@ -88,42 +86,30 @@ export function buildIncomeStatement(
 }
 
 /**
- * Balance sheet as of a date. Equity is credit-normal; net income for the
- * period is folded into equity so the sheet balances by construction.
+ * Balance sheet from account totals for everything up to `asOf`. All-time net
+ * income is folded into equity, so the sheet balances by construction.
  */
-export function buildBalanceSheet(
-  postings: readonly PostingRow[],
-  asOf: string,
-  periodStart = "0000-01-01",
-): BalanceSheet {
-  const scoped = postings.filter((p) => isPosted(p) && p.entryDate <= asOf);
-  const rows = [...aggregate(scoped).values()];
+export function balanceSheetFromTotals(rows: readonly TrialBalanceRow[], asOf: string): BalanceSheet {
   const assets = sortRows(rows.filter((r) => r.type === "ASSET"));
-  const liabilities = sortRows(rows.filter((r) => r.type === "LIABILITY")).map((r) => ({
-    ...r,
-    balanceMinor: -r.balanceMinor,
-  }));
-  const equity = sortRows(rows.filter((r) => r.type === "EQUITY")).map((r) => ({
-    ...r,
-    balanceMinor: -r.balanceMinor,
-  }));
-
-  const income = buildIncomeStatement(scoped, periodStart, asOf);
-  const retained: TrialBalanceRow = {
-    accountId: "current-period-earnings",
-    code: "3999",
-    name: "Current period earnings",
-    type: "EQUITY",
-    debitMinor: 0,
-    creditMinor: 0,
-    balanceMinor: income.netIncomeMinor,
-  };
-  const equityWithEarnings = [...equity, retained];
+  const liabilities = creditNormal(sortRows(rows.filter((r) => r.type === "LIABILITY")));
+  const equity = creditNormal(sortRows(rows.filter((r) => r.type === "EQUITY")));
+  const income = incomeStatementFromTotals(rows, "0000-01-01", asOf);
+  const equityWithEarnings: TrialBalanceRow[] = [
+    ...equity,
+    {
+      accountId: "current-period-earnings",
+      code: "3999",
+      name: "Current period earnings",
+      type: "EQUITY",
+      debitMinor: 0,
+      creditMinor: 0,
+      balanceMinor: income.netIncomeMinor,
+    },
+  ];
 
   const totalAssetsMinor = sumMinor(assets.map((r) => r.balanceMinor));
   const totalLiabilitiesMinor = sumMinor(liabilities.map((r) => r.balanceMinor));
   const totalEquityMinor = sumMinor(equityWithEarnings.map((r) => r.balanceMinor));
-
   return {
     asOf,
     assets,
@@ -134,4 +120,23 @@ export function buildBalanceSheet(
     totalEquityMinor,
     outOfBalanceMinor: totalAssetsMinor - (totalLiabilitiesMinor + totalEquityMinor),
   };
+}
+
+/** Trial balance straight from postings (only those dated on or before `asOf`). */
+export function buildTrialBalance(postings: readonly PostingRow[], asOf: string): TrialBalance {
+  return trialBalanceFromTotals(accountTotals(postings, { to: asOf }).rows, asOf);
+}
+
+/** Income statement straight from postings dated within `from`..`to`. */
+export function buildIncomeStatement(
+  postings: readonly PostingRow[],
+  from: string,
+  to: string,
+): IncomeStatement {
+  return incomeStatementFromTotals(accountTotals(postings, { from, to }).rows, from, to);
+}
+
+/** Balance sheet straight from postings dated on or before `asOf`. */
+export function buildBalanceSheet(postings: readonly PostingRow[], asOf: string): BalanceSheet {
+  return balanceSheetFromTotals(accountTotals(postings, { to: asOf }).rows, asOf);
 }

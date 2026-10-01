@@ -3,7 +3,7 @@ import { createReportingApp } from "./app";
 import { LedgerClient } from "./ledger-client";
 import { ReportingService } from "./services/reporting-service";
 
-const port = Number(process.env.REPORTING_API_PORT ?? 4002);
+const port = Number(process.env.REPORTING_API_PORT ?? process.env.PORT ?? 4002);
 const hostname = process.env.REPORTING_API_HOST ?? "0.0.0.0";
 const ledgerUrl = process.env.LEDGER_API_URL ?? "http://localhost:4001";
 const corsOrigins = (process.env.CORS_ORIGINS ?? "*")

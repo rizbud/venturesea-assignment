@@ -1,0 +1,97 @@
+# Production-shaped stack on one machine: the same images and the same rules as
+# the Render deploy (render.yaml), so the deploy can be rehearsed and verified
+# without a cloud account.
+#
+#   export INTERNAL_API_TOKEN=$(openssl rand -hex 32) POSTGRES_PASSWORD=$(openssl rand -hex 16)
+#   docker compose -f deployment/docker-compose.prod.yml up -d --build --wait
+#
+# Dashboard http://localhost:8080 · ledger http://localhost:4001 · reporting http://localhost:4002
+#
+#   db ── migrate (one-off, from the ledger image; must succeed before the APIs start)
+#    └── ledger-api x2 ──┐
+#        reporting-api x2┤── lb (nginx round-robin) ── :4001 / :4002
+#        web ────────────┘                              :8080
+name: ledgerlab-prod
+
+x-api-env: &api-env
+  NODE_ENV: production
+  INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?set INTERNAL_API_TOKEN (openssl rand -hex 32)}
+  CORS_ORIGINS: http://localhost:8080
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ledgerlab
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ledgerlab
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ledgerlab -d ledgerlab"]
+      interval: 3s
+      retries: 20
+
+  migrate:
+    build: { context: .., dockerfile: deployment/Dockerfile.ledger-api }
+    image: ledgerlab/ledger-api:local
+    command: ["node", "dist/migrate.js"]
+    environment:
+      DATABASE_URL: postgres://ledgerlab:${POSTGRES_PASSWORD}@db:5432/ledgerlab
+    depends_on:
+      db: { condition: service_healthy }
+    restart: "no"
+
+  ledger-api:
+    image: ledgerlab/ledger-api:local
+    environment:
+      <<: *api-env
+      DATABASE_URL: postgres://ledgerlab:${POSTGRES_PASSWORD}@db:5432/ledgerlab
+      DATABASE_POOL_MAX: 10
+    deploy:
+      replicas: 2
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    stop_grace_period: 15s
+
+  reporting-api:
+    build: { context: .., dockerfile: deployment/Dockerfile.reporting-api }
+    image: ledgerlab/reporting-api:local
+    environment:
+      <<: *api-env
+      LEDGER_API_URL: http://lb:4001
+    deploy:
+      replicas: 2
+    depends_on:
+      ledger-api: { condition: service_healthy }
+
+  web:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.web
+      args:
+        VITE_LEDGER_API_URL: http://localhost:4001
+        VITE_REPORTING_API_URL: http://localhost:4002
+    image: ledgerlab/web:local
+    environment:
+      CSP_CONNECT_SRC: http://localhost:4001 http://localhost:4002
+
+  lb:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./local-lb.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "4001:4001"
+      - "4002:4002"
+      - "8080:8080"
+    depends_on:
+      ledger-api: { condition: service_healthy }
+      reporting-api: { condition: service_healthy }
+      web: { condition: service_started }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4001/health >/dev/null"]
+      interval: 3s
+      retries: 20
+
+volumes:
+  db-data:

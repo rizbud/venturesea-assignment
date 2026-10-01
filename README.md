@@ -187,8 +187,8 @@ with `TODO`s still in it.
         ┌───────────────────────────┐  ┌──────────────────────────────┐
         │ apps/ledger-api (Hono)    │  │ apps/reporting-api (Hono)    │
         │ accounts · journal entries│◀─│ dashboard · P&L · balance    │
-        │ trial balance · postings  │  │ sheet (reads postings over   │
-        │                           │  │ /api/internal/postings)      │
+        │ trial balance · postings  │  │ sheet (reads account totals  │
+        │                           │  │ /api/internal/account-totals)│
         └─────────────┬─────────────┘  └──────────────────────────────┘
                       │ LedgerRepository (port)
           ┌───────────┴───────────┐

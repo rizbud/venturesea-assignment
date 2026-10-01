@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { AccountType, EntryStatus, PostingRow } from "@ledgerlab/shared";
-import { AppError } from "@ledgerlab/shared";
+import { AppError, accountTotals } from "@ledgerlab/shared";
 import { ReportingService } from "../services/reporting-service";
-import type { PostingSource } from "../ledger-client";
+import type { TotalsSource } from "../ledger-client";
 import { createReportingApp } from "../app";
 
 let lineCounter = 0;
@@ -40,7 +40,7 @@ const POSTINGS: PostingRow[] = [
   posting("je_3", "2026-01-12", "acct_cash", "1000", "Cash", "ASSET", -1_200),
 ];
 
-const fakeSource: PostingSource = { listPostings: async () => POSTINGS };
+const fakeSource: TotalsSource = { accountTotals: async (range) => accountTotals(POSTINGS, range) };
 
 describe("ReportingService", () => {
   const service = new ReportingService(fakeSource);
@@ -81,12 +81,11 @@ describe("ReportingService", () => {
   });
 
   it("ignores draft and void entries", async () => {
-    const source: PostingSource = {
-      listPostings: async () => [
-        ...POSTINGS,
-        posting("je_void", "2026-01-15", "acct_cash", "1000", "Cash", "ASSET", 9_999, "VOID"),
-      ],
-    };
+    const withVoid = [
+      ...POSTINGS,
+      posting("je_void", "2026-01-15", "acct_cash", "1000", "Cash", "ASSET", 9_999, "VOID"),
+    ];
+    const source: TotalsSource = { accountTotals: async (range) => accountTotals(withVoid, range) };
     const summary = await new ReportingService(source).dashboard("2026-01-31");
     expect(summary.cashMinor).toBe(3_800);
   });
@@ -110,8 +109,8 @@ describe("reporting-api routes", () => {
   });
 
   it("maps an upstream outage to 503", async () => {
-    const failing: PostingSource = {
-      listPostings: async () => {
+    const failing: TotalsSource = {
+      accountTotals: async () => {
         throw new AppError("UPSTREAM_UNAVAILABLE", "Ledger API is unavailable", 503);
       },
     };

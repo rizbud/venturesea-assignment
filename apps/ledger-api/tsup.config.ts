@@ -1,7 +1,11 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: ["src/index.ts"],
+  entry: {
+    index: "src/index.ts",
+    // Deploy-step migration runner, bundled so the runtime image needs no node_modules.
+    migrate: "../../packages/db/migrate.mjs",
+  },
   format: ["esm"],
   target: "node20",
   platform: "node",
@@ -9,6 +13,11 @@ export default defineConfig({
   clean: true,
   sourcemap: true,
   dts: false,
-  // Bundle workspace packages so the runtime image needs no workspace graph.
-  noExternal: [/^@ledgerlab\//],
+  // Bundle every dependency: the runtime image ships dist/ alone (no pnpm, no
+  // node_modules), which removes install/prune drift between build and run.
+  noExternal: [/.*/],
+  // Some bundled CommonJS deps call require(); give the ESM bundle one.
+  banner: {
+    js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);",
+  },
 });

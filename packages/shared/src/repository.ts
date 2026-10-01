@@ -1,6 +1,7 @@
 import type {
   Account,
   AccountType,
+  TrialBalanceRow,
   CreateAccountInput,
   CreateJournalEntryInput,
   EntryStatus,
@@ -23,6 +24,19 @@ export interface PostingRow {
   accountType: AccountType;
   /** Signed minor units: > 0 debit, < 0 credit. */
   amountMinor: number;
+}
+
+/** Inclusive YYYY-MM-DD bounds; omitted bounds are open. */
+export interface DateRange {
+  from?: string;
+  to?: string;
+}
+
+/** Per-account gross debit/credit totals for POSTED entries in a date range. */
+export interface AccountTotals {
+  rows: TrialBalanceRow[];
+  /** Distinct POSTED entries in the range. */
+  entryCount: number;
 }
 
 export interface ListJournalEntriesQuery {
@@ -63,4 +77,7 @@ export interface LedgerRepository {
 
   /** All lines belonging to POSTED entries, joined with account metadata. */
   listPostings(): Promise<PostingRow[]>;
+
+  /** Per-account totals for POSTED entries in the range. The source for every report. */
+  accountTotals(range: DateRange): Promise<AccountTotals>;
 }

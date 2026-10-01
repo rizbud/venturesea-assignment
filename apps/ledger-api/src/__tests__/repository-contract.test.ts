@@ -14,7 +14,7 @@ import {
   seedPostgres,
 } from "@ledgerlab/db";
 import type { Account, LedgerRepository } from "@ledgerlab/shared";
-import { ConflictError, NotFoundError, sumMinor } from "@ledgerlab/shared";
+import { ConflictError, NotFoundError, accountTotals, sumMinor } from "@ledgerlab/shared";
 
 interface Adapter {
   name: string;
@@ -163,6 +163,31 @@ describe.each(adapters)("LedgerRepository contract ($name)", (adapter) => {
       from: "2026-03-15",
     });
     expect(posted.data.map((e) => e.date)).toEqual(["2026-03-31"]);
+  });
+
+  it("aggregates account totals exactly like the reference implementation", async () => {
+    await sale(100, "2026-03-01");
+    await sale(250, "2026-03-15");
+    const voided = await sale(7_777, "2026-03-15");
+    await sale(400, "2026-03-31");
+    await repo.voidJournalEntry(voided.id);
+    // Same postings, same ranges: SQL GROUP BY must equal the JS reference, edges inclusive.
+    const postings = await repo.listPostings();
+    const byCode = (rows: { code: string }[]) => [...rows].sort((a, b) => a.code.localeCompare(b.code));
+    for (const range of [
+      {},
+      { to: "2026-03-15" },
+      { from: "2026-03-15", to: "2026-03-15" },
+      { from: "2026-04-01" },
+    ]) {
+      const actual = await repo.accountTotals(range);
+      const expected = accountTotals(postings, range);
+      expect(byCode(actual.rows)).toEqual(byCode(expected.rows));
+      expect(actual.entryCount).toBe(expected.entryCount);
+    }
+    const march = await repo.accountTotals({ to: "2026-03-15" });
+    expect(march.entryCount).toBe(2);
+    expect(march.rows.find((r) => r.code === "1000")?.debitMinor).toBe(350);
   });
 
   it("returns undefined when voiding an unknown entry", async () => {

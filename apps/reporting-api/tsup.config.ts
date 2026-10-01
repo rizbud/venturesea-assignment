@@ -9,5 +9,11 @@ export default defineConfig({
   clean: true,
   sourcemap: true,
   dts: false,
-  noExternal: [/^@ledgerlab\//],
+  // Bundle every dependency: the runtime image ships dist/ alone (no pnpm, no
+  // node_modules), which removes install/prune drift between build and run.
+  noExternal: [/.*/],
+  // Some bundled CommonJS deps call require(); give the ESM bundle one.
+  banner: {
+    js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);",
+  },
 });

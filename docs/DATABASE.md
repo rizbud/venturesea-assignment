@@ -23,8 +23,10 @@ export interface LedgerRepository {
   createJournalEntry(input: CreateJournalEntryInput): Promise<JournalEntry>;
   voidJournalEntry(id: string): Promise<JournalEntry | undefined>; // POSTED -> VOID, else ConflictError
 
-  /** POSTED lines joined with account metadata — the source for all reports. */
+  /** POSTED lines joined with account metadata. */
   listPostings(): Promise<PostingRow[]>;
+  /** Per-account totals in a date range, aggregated in SQL: the source for every report. */
+  accountTotals(range: DateRange): Promise<AccountTotals>;
 }
 ```
 
@@ -152,8 +154,9 @@ Each ledger-api process holds one `postgres.js` pool:
 - Behind PgBouncer in **transaction** mode, disable prepared statements
   (`prepare: false` in `createDatabase`).
 - TLS: append `?sslmode=require` to `DATABASE_URL` for managed databases.
-- The reporting API holds no database connection; it reads postings from the
-  ledger over `/api/internal/postings`.
+- The reporting API holds no database connection; it reads per-account totals
+  from the ledger over `/api/internal/account-totals`, which Postgres computes
+  with one `GROUP BY` (a few dozen rows per request, whatever the ledger size).
 
 ## Health and shutdown
 

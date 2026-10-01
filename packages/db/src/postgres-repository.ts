@@ -1,6 +1,8 @@
 import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import type {
   Account,
+  AccountTotals,
+  DateRange,
   CreateAccountInput,
   CreateJournalEntryInput,
   JournalEntry,
@@ -212,6 +214,42 @@ export class PostgresLedgerRepository implements LedgerRepository {
       throw new ConflictError(`Journal entry ${id} is ${entry.status}; only POSTED entries can be voided`);
     }
     return entry;
+  }
+
+  async accountTotals(range: DateRange): Promise<AccountTotals> {
+    const where = and(
+      eq(journalEntries.status, "POSTED"),
+      range.from ? gte(journalEntries.entryDate, range.from) : undefined,
+      range.to ? lte(journalEntries.entryDate, range.to) : undefined,
+    );
+    const rows = await this.db
+      .select({
+        accountId: accounts.id,
+        code: accounts.code,
+        name: accounts.name,
+        type: accounts.type,
+        debitMinor:
+          sql<number>`coalesce(sum(${journalLines.amountMinor}) filter (where ${journalLines.amountMinor} > 0), 0)`.mapWith(
+            Number,
+          ),
+        creditMinor:
+          sql<number>`coalesce(-sum(${journalLines.amountMinor}) filter (where ${journalLines.amountMinor} < 0), 0)`.mapWith(
+            Number,
+          ),
+      })
+      .from(journalLines)
+      .innerJoin(journalEntries, eq(journalLines.entryId, journalEntries.id))
+      .innerJoin(accounts, eq(journalLines.accountId, accounts.id))
+      .where(where)
+      .groupBy(accounts.id);
+    const [count] = await this.db
+      .select({ value: sql<number>`count(*)::int` })
+      .from(journalEntries)
+      .where(where);
+    return {
+      rows: rows.map((r) => ({ ...r, balanceMinor: r.debitMinor - r.creditMinor })),
+      entryCount: count?.value ?? 0,
+    };
   }
 
   async listPostings(): Promise<PostingRow[]> {

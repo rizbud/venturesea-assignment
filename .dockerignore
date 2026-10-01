@@ -1,0 +1,12 @@
+# Keep the build context small and secret-free.
+**/node_modules
+**/dist
+**/.turbo
+.turbo
+.git
+.github
+.env
+.env.*
+!.env.example
+docs
+*.pdf

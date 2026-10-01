@@ -6,27 +6,29 @@ RUN corepack enable
 WORKDIR /app
 
 # Copy manifests first so dependency layers cache well.
-COPY pnpm-workspace.yaml package.json tsconfig.base.json turbo.json ./
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json turbo.json ./
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/db/package.json ./packages/db/
 COPY apps/ledger-api/package.json ./apps/ledger-api/
-RUN pnpm install --prod=false --ignore-scripts=false
+RUN pnpm install --frozen-lockfile
 
 COPY packages ./packages
 COPY apps/ledger-api ./apps/ledger-api
 RUN pnpm --filter @ledgerlab/ledger-api build
 
+# Runtime: dist/ is a self-contained bundle (tsup bundles every dependency), so the
+# image is node + dist + migrations. No pnpm, no node_modules, nothing to resolve.
 FROM node:20-alpine AS runner
-RUN corepack enable
 WORKDIR /app
-ENV NODE_ENV=production
-COPY --from=builder /app ./
-RUN pnpm prune --prod --ignore-scripts || true
+ENV NODE_ENV=production LEDGER_API_PORT=4001 LEDGER_API_HOST=0.0.0.0
+RUN echo '{"type":"module"}' > package.json
+COPY --from=builder /app/apps/ledger-api/dist ./dist
+COPY packages/db/migrations ./dist/migrations
 
-# Run as a non-root user.
+# Migrations run as a separate deploy step from this same image, never on boot:
+#   docker run --rm -e DATABASE_URL=... ledgerlab/ledger-api node dist/migrate.js
 USER node
-ENV LEDGER_API_PORT=4001 LEDGER_API_HOST=0.0.0.0
 EXPOSE 4001
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.LEDGER_API_PORT||4001)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-CMD ["node", "apps/ledger-api/dist/index.js"]
+CMD ["node", "dist/index.js"]

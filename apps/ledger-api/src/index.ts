@@ -3,7 +3,7 @@ import { createLedgerApp } from "./app";
 import { LedgerService } from "./services/ledger-service";
 import { resolveLedgerRepository } from "./repositories/resolve";
 
-const port = Number(process.env.LEDGER_API_PORT ?? 4001);
+const port = Number(process.env.LEDGER_API_PORT ?? process.env.PORT ?? 4001);
 const hostname = process.env.LEDGER_API_HOST ?? "0.0.0.0";
 const corsOrigins = (process.env.CORS_ORIGINS ?? "*")
   .split(",")

@@ -1,5 +1,7 @@
 import type {
   Account,
+  AccountTotals,
+  DateRange,
   CreateAccountInput,
   CreateJournalEntryInput,
   JournalEntry,
@@ -12,6 +14,7 @@ import {
   ConflictError,
   NotFoundError,
   SEED_ACCOUNTS,
+  accountTotals,
   buildSeedEntries,
   createId,
   isBalanced,
@@ -196,6 +199,10 @@ export class InMemoryLedgerRepository implements LedgerRepository {
     const updated: JournalEntry = { ...entry, status: "VOID" };
     this.entries.set(id, updated);
     return updated;
+  }
+
+  async accountTotals(range: DateRange): Promise<AccountTotals> {
+    return accountTotals(await this.listPostings(), range);
   }
 
   async listPostings(): Promise<PostingRow[]> {

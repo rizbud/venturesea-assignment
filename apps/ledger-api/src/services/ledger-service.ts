@@ -1,12 +1,13 @@
 import type {
   Account,
+  AccountTotals,
+  DateRange,
   CreateAccountInput,
   CreateJournalEntryInput,
   JournalEntry,
   LedgerRepository,
   ListJournalEntriesQuery,
   Paginated,
-  PostingRow,
   TrialBalance,
 } from "@ledgerlab/shared";
 import {
@@ -14,7 +15,7 @@ import {
   NotFoundError,
   UnbalancedEntryError,
   ValidationError,
-  buildTrialBalance,
+  trialBalanceFromTotals,
   isBalanced,
   sumMinor,
 } from "@ledgerlab/shared";
@@ -135,12 +136,12 @@ export class LedgerService {
   }
 
   async trialBalance(asOf: string): Promise<TrialBalance> {
-    const postings = await this.repo.listPostings();
-    return buildTrialBalance(postings, asOf);
+    const { rows } = await this.repo.accountTotals({ to: asOf });
+    return trialBalanceFromTotals(rows, asOf);
   }
 
-  /** Raw postings for downstream services (used by the reporting API). */
-  listPostings(): Promise<PostingRow[]> {
-    return this.repo.listPostings();
+  /** Per-account totals for downstream services (used by the reporting API). */
+  accountTotals(range: DateRange): Promise<AccountTotals> {
+    return this.repo.accountTotals(range);
   }
 }

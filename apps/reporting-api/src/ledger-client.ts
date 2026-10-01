@@ -1,12 +1,12 @@
-import type { PostingRow } from "@ledgerlab/shared";
+import type { AccountTotals, DateRange } from "@ledgerlab/shared";
 import { AppError } from "@ledgerlab/shared";
 
 /**
- * Anything the reporting service can read postings from. The production
+ * Where the reporting service reads per-account totals from. The production
  * implementation is LedgerClient (HTTP); tests inject a fake.
  */
-export interface PostingSource {
-  listPostings(): Promise<PostingRow[]>;
+export interface TotalsSource {
+  accountTotals(range: DateRange): Promise<AccountTotals>;
 }
 
 export interface LedgerClientOptions {
@@ -16,8 +16,8 @@ export interface LedgerClientOptions {
   timeoutMs?: number;
 }
 
-/** HTTP client for the ledger API's internal postings endpoint. */
-export class LedgerClient implements PostingSource {
+/** HTTP client for the ledger API's internal account-totals endpoint. */
+export class LedgerClient implements TotalsSource {
   private readonly baseUrl: string;
   private readonly internalToken?: string;
   private readonly timeoutMs: number;
@@ -28,19 +28,21 @@ export class LedgerClient implements PostingSource {
     this.timeoutMs = options.timeoutMs ?? 5_000;
   }
 
-  async listPostings(): Promise<PostingRow[]> {
+  async accountTotals(range: DateRange): Promise<AccountTotals> {
+    const params = new URLSearchParams();
+    if (range.from) params.set("from", range.from);
+    if (range.to) params.set("to", range.to);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      const response = await fetch(`${this.baseUrl}/api/internal/postings`, {
+      const response = await fetch(`${this.baseUrl}/api/internal/account-totals?${params}`, {
         headers: this.internalToken ? { authorization: `Bearer ${this.internalToken}` } : {},
         signal: controller.signal,
       });
       if (!response.ok) {
         throw new AppError("UPSTREAM_ERROR", `Ledger API responded with ${response.status}`, 502);
       }
-      const body = (await response.json()) as { data: PostingRow[] };
-      return body.data;
+      return ((await response.json()) as { data: AccountTotals }).data;
     } catch (error) {
       if (error instanceof AppError) throw error;
       if (error instanceof Error && error.name === "AbortError") {

@@ -67,3 +67,41 @@ jobs:
 
       - name: Format check
         run: pnpm format:check
+
+  images:
+    name: docker images · migrate from image
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ledgerlab
+          POSTGRES_PASSWORD: ledgerlab
+          POSTGRES_DB: ledgerlab
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ledgerlab -d ledgerlab"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build images
+        run: |
+          docker build -f deployment/Dockerfile.ledger-api -t ledgerlab/ledger-api .
+          docker build -f deployment/Dockerfile.reporting-api -t ledgerlab/reporting-api .
+          docker build -f deployment/Dockerfile.web -t ledgerlab/web .
+
+      # The deploy step exactly as Render's preDeployCommand runs it, inside the runtime image.
+      - name: Migrate from the runtime image (twice, to prove idempotency)
+        run: |
+          for i in 1 2; do
+            docker run --rm --network host -e DATABASE_URL=postgres://ledgerlab:ledgerlab@localhost:5432/ledgerlab \
+              ledgerlab/ledger-api node dist/migrate.js
+          done
+
+      - name: Boot the API image against Postgres and check /health
+        run: |
+          docker run -d --name api --network host -e NODE_ENV=production \
+            -e DATABASE_URL=postgres://ledgerlab:ledgerlab@localhost:5432/ledgerlab ledgerlab/ledger-api
+          for i in $(seq 1 20); do curl -fs localhost:4001/health && exit 0; sleep 1; done
+          docker logs api; exit 1
