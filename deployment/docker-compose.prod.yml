@@ -21,6 +21,9 @@ x-api-env: &api-env
 services:
   db:
     image: postgres:16-alpine
+    # Docker caps /dev/shm at 64 MB; parallel aggregate queries over a year of
+    # lines exhausted it under load (53100 "could not resize shared memory").
+    shm_size: 256mb
     environment:
       POSTGRES_USER: ledgerlab
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}

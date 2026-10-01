@@ -17,8 +17,12 @@ databases:
   - name: ledgerlab-db
     databaseName: ledgerlab
     user: ledgerlab
-    plan: basic-256mb
+    # 1 GB RAM holds a year of ledger data (209 MB measured, see INFRASTRUCTURE-PLAN.md §6).
+    plan: basic-1gb
     postgresMajorVersion: "16"
+    # Must match the services: private networking is per region, and the default
+    # (oregon) cannot be changed after the database is created.
+    region: singapore
 
 services:
   # ---------------------------------------------------------------- ledger API
