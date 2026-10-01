@@ -1,8 +1,9 @@
 # Deploying LedgerLab on AWS (ECS Fargate)
 
 The production target. Infrastructure is code in [`infra/aws`](../../infra/aws)
-(AWS CDK, TypeScript); [`deploy.sh`](deploy.sh) builds, migrates and rolls out
-in one command.
+(AWS CDK, TypeScript). GitHub Actions ([`deploy.yml`](../../.github/workflows/deploy.yml))
+deploys every push to `main` that passes CI by running [`deploy.sh`](deploy.sh),
+which builds, migrates and rolls out. AWS access is OIDC: no AWS keys in GitHub.
 
 > **Status (2026-10-01):** the stacks synthesize and are covered by assertion
 > tests (`pnpm --filter @ledgerlab/infra-aws test`). They have not been deployed:
@@ -42,18 +43,34 @@ admits nothing but Cloudflare.
 
 1. An AWS account. For the Jakarta region, enable `ap-southeast-3` under
    Account → AWS Regions (it is opt-in). Set a billing budget alarm.
-2. On the deploy machine: AWS CLI v2 signed in (`aws configure sso`), Docker, pnpm.
+2. On your machine, once: AWS CLI v2 signed in (`aws configure sso`), pnpm.
 3. CDK bootstrap for the account and region:
    `pnpm --filter @ledgerlab/infra-aws exec cdk bootstrap aws://<account>/ap-southeast-3`
-4. The domain added to Cloudflare (nameservers switched at the registrar).
+4. The GitHub deploy role (`ledgerlab-github-deploy`, trusted only by this
+   repository's `production` environment):
+   `pnpm --filter @ledgerlab/infra-aws exec cdk deploy LedgerLabGithub`
+   (the repository is `githubRepository` in `infra/aws/cdk.json`).
+5. In GitHub → Settings:
+   - **Environments → New environment** `production` (optionally add yourself
+     as a required reviewer, so each deploy waits for approval).
+   - **Secrets and variables → Actions → Variables** (repository variables):
+     `AWS_DEPLOY_ROLE_ARN` = the `DeployRoleArn` output of step 4,
+     `DOMAIN` = e.g. `ledgerlab.example.com`, and optionally `AWS_REGION`
+     (default `ap-southeast-3`). None of these is a secret.
+6. The domain added to Cloudflare (nameservers switched at the registrar).
 
 ## Deploy
+
+Push to `main`. When CI passes, the **Deploy** workflow runs `deploy.sh` on the
+commit CI tested; one deploy at a time. Run it by hand from the Actions tab
+(**Deploy → Run workflow**). Until `AWS_DEPLOY_ROLE_ARN` is set, the workflow
+is skipped. The script still runs locally with your own credentials:
 
 ```bash
 DOMAIN=ledgerlab.example.com AWS_REGION=ap-southeast-3 deployment/aws/deploy.sh
 ```
 
-**First run.** The script creates the stack with 0 tasks. ACM then waits for DNS
+**First run.** Watch the workflow log: the script creates the stack with 0 tasks. ACM then waits for DNS
 validation: copy the CNAME records shown in ACM (console → Certificate Manager)
 into Cloudflare as **DNS only**. Next the migration task creates the schema and
 the `ledgerlab_app` role, and the script scales every service to 2 tasks.
@@ -75,20 +92,18 @@ Follow [`../cloudflare/README.md`](../cloudflare/README.md), with these AWS spec
 
 ## Operations
 
-| Task                                          | How                                                                                                                                                                                                                                                                                |
-| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Roll back                                     | `pnpm --filter @ledgerlab/infra-aws exec cdk deploy LedgerLab -c domainName=<domain> -c imageTag=<previous sha>`: the image is already in ECR and the schema stays (migrations are backward compatible for one release). A failed roll is undone by the circuit breaker on its own |
-| Scale                                         | Automatic 2–6 per service on CPU; change the bounds in `infra/aws/lib/stacks.ts`                                                                                                                                                                                                   |
-| Rotate `ledgerlab_app` password               | Secrets Manager → rotate `AppDbSecret` value → `deploy.sh` (the migration task re-applies it with `ALTER ROLE`, then services roll)                                                                                                                                                |
-| Rotate `INTERNAL_API_TOKEN` / `ORIGIN_SECRET` | Update the secret (and the Cloudflare rule for the origin secret), then `aws ecs update-service --force-new-deployment` on each service                                                                                                                                            |
-| Restore                                       | RDS → restore to a point in time (new instance) → point `PGHOST` at it via a stack change; drill procedure in `docs/evidence/G9-restore-drill.md`                                                                                                                                  |
-| Rollup drift check                            | Not scheduled yet: `SELECT count(*) FROM ledger_rollup_drift` must return 0                                                                                                                                                                                                        |
+| Task                                          | How                                                                                                                                                                                                                                                                                                                                                        |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Roll back                                     | Actions → an earlier successful **Deploy** run → **Re-run jobs** (it redeploys that commit), or locally `pnpm --filter @ledgerlab/infra-aws exec cdk deploy LedgerLab -c domainName=<domain> -c imageTag=<previous sha>`. The schema stays (migrations are backward compatible for one release). A failed roll is undone by the circuit breaker on its own |
+| Scale                                         | Automatic 2–6 per service on CPU; change the bounds in `infra/aws/lib/stacks.ts`                                                                                                                                                                                                                                                                           |
+| Rotate `ledgerlab_app` password               | Secrets Manager → rotate `AppDbSecret` value → run the Deploy workflow (the migration task re-applies it with `ALTER ROLE`, then services roll)                                                                                                                                                                                                            |
+| Rotate `INTERNAL_API_TOKEN` / `ORIGIN_SECRET` | Update the secret (and the Cloudflare rule for the origin secret), then `aws ecs update-service --force-new-deployment` on each service                                                                                                                                                                                                                    |
+| Restore                                       | RDS → restore to a point in time (new instance) → point `PGHOST` at it via a stack change; drill procedure in `docs/evidence/G9-restore-drill.md`                                                                                                                                                                                                          |
+| Rollup drift check                            | Not scheduled yet: `SELECT count(*) FROM ledger_rollup_drift` must return 0                                                                                                                                                                                                                                                                                |
 
 ## Not included (yet)
 
 - CloudWatch alarms and an SNS topic: external uptime monitoring plus ALB/RDS
   metrics cover go-live; alarms on 5xx rate, p95 latency and RDS CPU are the next step.
-- A GitHub Actions deploy job: needs an OIDC role in the account; `deploy.sh`
-  is what it will run.
 - A nightly scheduled task for the rollup drift check, wired to the same alarms.
 - VPC endpoints instead of the single NAT gateway (see the `ponytail:` note in the stack).

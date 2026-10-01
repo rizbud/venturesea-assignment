@@ -4,6 +4,7 @@ import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as ecr from "aws-cdk-lib/aws-ecr";
 import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2";
+import * as iam from "aws-cdk-lib/aws-iam";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as rds from "aws-cdk-lib/aws-rds";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
@@ -343,6 +344,93 @@ export class LedgerLabStack extends Stack {
     new CfnOutput(this, "OriginSecretArn", {
       value: originSecret.secretArn,
       description: "Read once and put the value in the Cloudflare transform rule",
+    });
+  }
+}
+
+export interface GithubDeployStackProps extends StackProps {
+  /** owner/name of the GitHub repository whose `production` environment may deploy. */
+  repository: string;
+}
+
+/**
+ * The role GitHub Actions assumes (OIDC, no stored AWS keys) to run
+ * deployment/aws/deploy.sh. Deploy once from a signed-in machine.
+ */
+export class GithubDeployStack extends Stack {
+  constructor(scope: Construct, id: string, props: GithubDeployStackProps) {
+    super(scope, id, props);
+    const provider = new iam.OpenIdConnectProvider(this, "GithubOidc", {
+      url: "https://token.actions.githubusercontent.com",
+      clientIds: ["sts.amazonaws.com"],
+    });
+    const role = new iam.Role(this, "DeployRole", {
+      roleName: "ledgerlab-github-deploy",
+      description: `GitHub Actions deploys from ${props.repository} (production environment only)`,
+      // The first deploy waits for RDS and ACM validation.
+      maxSessionDuration: Duration.hours(2),
+      assumedBy: new iam.WebIdentityPrincipal(provider.openIdConnectProviderArn, {
+        StringEquals: {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+          "token.actions.githubusercontent.com:sub": `repo:${props.repository}:environment:production`,
+        },
+      }),
+    });
+
+    const { account, region } = this;
+    // cdk deploy: CloudFormation runs with the bootstrap roles, not this one.
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ["sts:AssumeRole"],
+        resources: [`arn:aws:iam::${account}:role/cdk-*`],
+      }),
+    );
+    // deploy.sh: push images, read stack outputs, run and watch the migration task.
+    role.addToPolicy(new iam.PolicyStatement({ actions: ["ecr:GetAuthorizationToken"], resources: ["*"] }));
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        actions: [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:BatchGetImage",
+          "ecr:InitiateLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:CompleteLayerUpload",
+          "ecr:PutImage",
+        ],
+        resources: REPOSITORIES.map(
+          (name) => `arn:aws:ecr:${region}:${account}:repository/${repositoryName(name)}`,
+        ),
+      }),
+    );
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ["cloudformation:DescribeStacks"],
+        resources: [`arn:aws:cloudformation:${region}:${account}:stack/LedgerLab*`],
+      }),
+    );
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ["ecs:RunTask"],
+        resources: [`arn:aws:ecs:${region}:${account}:task-definition/LedgerLab*`],
+      }),
+    );
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ["ecs:DescribeTasks"],
+        resources: [`arn:aws:ecs:${region}:${account}:task/*`],
+      }),
+    );
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ["iam:PassRole"],
+        resources: [`arn:aws:iam::${account}:role/LedgerLab-*`],
+        conditions: { StringEquals: { "iam:PassedToService": "ecs-tasks.amazonaws.com" } },
+      }),
+    );
+
+    new CfnOutput(this, "DeployRoleArn", {
+      value: role.roleArn,
+      description: "Set as the AWS_DEPLOY_ROLE_ARN variable of the GitHub production environment",
     });
   }
 }

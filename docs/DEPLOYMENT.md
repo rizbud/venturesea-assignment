@@ -31,11 +31,16 @@ Tear down with `docker compose -f deployment/docker-compose.prod.yml down -v`.
 
 ## Deploy to AWS (target)
 
+Every push to `main` that passes CI is deployed by GitHub Actions
+(`.github/workflows/deploy.yml`), which assumes an AWS role through OIDC (no AWS
+keys in GitHub) and runs `deployment/aws/deploy.sh`. The script also runs
+locally:
+
 ```bash
 DOMAIN=ledgerlab.example.com AWS_REGION=ap-southeast-3 deployment/aws/deploy.sh
 ```
 
-Builds and pushes the three images (git SHA tag), runs the migration as a
+It builds and pushes the three images (git SHA tag), runs the migration as a
 one-off Fargate task with the new image (a failure stops the deploy before any
 service changes), then rolls the services: 2 tasks each, never fewer than 2
 healthy during the roll, automatic rollback if new tasks fail health checks.

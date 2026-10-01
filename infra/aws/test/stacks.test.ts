@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
-import { CLOUDFLARE_IPV4, LedgerLabStack, RegistryStack } from "../lib/stacks";
+import { CLOUDFLARE_IPV4, GithubDeployStack, LedgerLabStack, RegistryStack } from "../lib/stacks";
 
 const env = { account: "111111111111", region: "ap-southeast-3" };
 const synth = (props: { tasksPerService?: number; multiAz?: boolean } = {}) =>
@@ -125,5 +125,43 @@ describe("Registry stack", () => {
         ImageScanningConfiguration: { ScanOnPush: true },
       });
     }
+  });
+});
+
+describe("GitHub deploy stack", () => {
+  const template = Template.fromStack(
+    new GithubDeployStack(new App(), "LedgerLabGithub", { env, repository: "rizbud/venturesea-assignment" }),
+  );
+
+  it("trusts only the repository's production environment, through OIDC", () => {
+    template.hasResourceProperties("AWS::IAM::Role", {
+      RoleName: "ledgerlab-github-deploy",
+      AssumeRolePolicyDocument: {
+        Statement: [
+          Match.objectLike({
+            Action: "sts:AssumeRoleWithWebIdentity",
+            Condition: {
+              StringEquals: {
+                "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+                "token.actions.githubusercontent.com:sub":
+                  "repo:rizbud/venturesea-assignment:environment:production",
+              },
+            },
+          }),
+        ],
+      },
+    });
+  });
+
+  it("grants no wildcard actions and passes roles only to ECS tasks", () => {
+    const policies = Object.values(template.findResources("AWS::IAM::Policy"));
+    const statements = policies.flatMap(
+      (p) => p.Properties.PolicyDocument.Statement as { Action: string | string[]; Condition?: unknown }[],
+    );
+    const actions = statements.flatMap((s) => [s.Action].flat());
+    expect(actions.some((a) => a.endsWith("*"))).toBe(false);
+    expect(statements.find((s) => s.Action === "iam:PassRole")?.Condition).toEqual({
+      StringEquals: { "iam:PassedToService": "ecs-tasks.amazonaws.com" },
+    });
   });
 });

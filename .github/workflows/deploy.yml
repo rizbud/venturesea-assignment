@@ -1,0 +1,63 @@
+name: Deploy
+
+# Deploys main to AWS (deployment/aws/deploy.sh) after CI passes on it, or on
+# demand. AWS access is through OIDC: no AWS keys are stored in GitHub. Until the
+# repository variables AWS_DEPLOY_ROLE_ARN and DOMAIN are set
+# (deployment/aws/README.md), the job is skipped. They are repository variables,
+# not environment ones, because the job-level `if` cannot see the latter.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+# One deploy at a time; a newer one waits instead of interrupting a roll.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: deploy to AWS
+    if: >-
+      vars.AWS_DEPLOY_ROLE_ARN != '' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The commit CI tested, not whatever main points at now.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-southeast-3' }}
+          role-duration-seconds: 7200
+
+      - name: Deploy
+        env:
+          DOMAIN: ${{ vars.DOMAIN }}
+        run: deployment/aws/deploy.sh

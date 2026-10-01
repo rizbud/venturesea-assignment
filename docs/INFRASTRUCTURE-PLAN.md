@@ -281,8 +281,11 @@ data into less-protected places.
 | Deploy prod    | approval            | Same script and same image tag against production, after staging passed                                                | Manual    |
 | Rollback       | on-call / automatic | Circuit breaker rolls back a failed roll; otherwise `cdk deploy -c imageTag=<previous sha>` (30 images kept in ECR)    | —         |
 
-Today `deploy.sh` is run by an admin from a signed-in machine. The GitHub job
-needs an OIDC deploy role in each account; it runs the same script.
+Deploys run in GitHub Actions (`.github/workflows/deploy.yml`) after CI passes
+on `main`, assuming an IAM role through OIDC that only this repository's
+`production` environment can use (`LedgerLabGithub` stack); no AWS keys are
+stored in GitHub. Today there is one environment; staging is a second account
+with its own role and a second GitHub environment.
 
 **Rollback procedure:** deploy the previous image tag (command in
 `deployment/aws/README.md`; a rolling update, no downtime, a few minutes). The database is not rolled

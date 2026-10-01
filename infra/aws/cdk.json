@@ -1,6 +1,7 @@
 {
   "app": "tsx bin/app.ts",
   "context": {
-    "region": "ap-southeast-3"
+    "region": "ap-southeast-3",
+    "githubRepository": "rizbud/venturesea-assignment"
   }
 }

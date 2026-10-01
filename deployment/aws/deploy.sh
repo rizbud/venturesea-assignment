@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# One-command deploy to AWS ECS Fargate (infra/aws). Run from the repo root with
-# AWS credentials for the target account (aws sso login / GitHub OIDC):
+# Deploy to AWS ECS Fargate (infra/aws). GitHub Actions runs this on every push
+# to main that passes CI (.github/workflows/deploy.yml). By hand, from the repo
+# root with AWS credentials for the target account (aws sso login):
 #
 #   DOMAIN=ledgerlab.example.com AWS_REGION=ap-southeast-3 deployment/aws/deploy.sh
 #
-# Order, as on Render: build -> push -> migrate with the NEW image (migrations
+# Order: build -> push -> migrate with the NEW image (migrations
 # stay backward compatible for one release, so the old tasks keep working) ->
 # roll the services. The very first deploy creates everything with 0 tasks,
 # migrates (which creates the app role), then scales to 2 per service.

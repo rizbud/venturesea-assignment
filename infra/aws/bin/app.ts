@@ -1,7 +1,8 @@
 import { App } from "aws-cdk-lib";
-import { LedgerLabStack, RegistryStack } from "../lib/stacks";
+import { GithubDeployStack, LedgerLabStack, RegistryStack } from "../lib/stacks";
 
 // Usage (see deployment/aws/README.md; deploy.sh runs these in order):
+//   cdk deploy LedgerLabGithub            (once, from a signed-in machine)
 //   cdk deploy LedgerLabRegistry
 //   cdk deploy LedgerLab -c domainName=ledgerlab.example.com -c imageTag=<git sha> [-c tasksPerService=0]
 const app = new App();
@@ -11,6 +12,7 @@ const env = {
 };
 
 new RegistryStack(app, "LedgerLabRegistry", { env });
+new GithubDeployStack(app, "LedgerLabGithub", { env, repository: app.node.getContext("githubRepository") });
 
 const domainName: string | undefined = app.node.tryGetContext("domainName");
 if (domainName) {

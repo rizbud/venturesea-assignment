@@ -14,8 +14,8 @@
 
 The production shape is rehearsed locally with the exact images and rules
 (`deployment/docker-compose.prod.yml`, [G4 evidence](evidence/G4-deploy-rehearsal.md)),
-and the AWS stacks (`infra/aws`, CDK, tested) deploy it with
-`deployment/aws/deploy.sh` once an AWS account and domain exist. No URL here is
+and the AWS stacks (`infra/aws`, CDK, tested) are deployed by GitHub Actions
+(`.github/workflows/deploy.yml`) once an AWS account and domain exist. No URL here is
 invented.
 
 **Cloudflare / custom domain:** not attempted (no domain or Cloudflare account).
@@ -48,7 +48,7 @@ The origin side is built and tested, and the exact configuration is in
   342 req/s at one year of history instead of ~5.
 - **AWS target**: ECS Fargate in Jakarta as CDK code with assertion tests
   (2 tasks per service, autoscaling 2–6, never below 2 during deploys; RDS
-  Multi-AZ; Cloudflare-only ALB; Secrets Manager); one-command `deploy.sh`; the
+  Multi-AZ; Cloudflare-only ALB; Secrets Manager); GitHub Actions deploy via OIDC (`deploy.sh`); the
   app reads `PG*` variables, the migration step creates the app role, and the
   rate limiter can key on `CF-Connecting-IP`.
 - **G8, sub-agents** (`bc49d77`): six agents; three demonstrated; they caught
@@ -100,8 +100,9 @@ WHERE status = 'POSTED' RETURNING`), so two concurrent voids cannot both
 - **Target:** AWS ECS Fargate, Jakarta (`ap-southeast-3`), RDS PostgreSQL 16
   Multi-AZ, behind Cloudflare ([`deployment/aws/README.md`](../deployment/aws/README.md)).
   Render (`deployment/render.yaml`) remains a working alternative.
-- **Reproduce it:** `DOMAIN=<domain> deployment/aws/deploy.sh` (prerequisites in
-  the AWS runbook). Locally:
+- **Reproduce it:** push to `main`; after CI passes, the Deploy workflow runs
+  `deployment/aws/deploy.sh` with an OIDC role (one-time setup in the AWS
+  runbook). Locally:
   `docker compose -f deployment/docker-compose.prod.yml up -d --build --wait`
   (env vars in [`DEPLOYMENT.md`](DEPLOYMENT.md)).
 - **Scaling:** at least 2 tasks per service (ledger, reporting, web) across two
@@ -230,9 +231,9 @@ Run on 2026-10-01 with `TEST_DATABASE_URL` pointing at Postgres 16
 ```
 pnpm format:check   # PASS
 pnpm typecheck      # PASS (7/7)
-pnpm test           # PASS: 109 tests (shared 30, reporting 9, ledger 63 incl. Postgres, infra-aws 7), 0 skipped
+pnpm test           # PASS: 111 tests (shared 30, reporting 9, ledger 63 incl. Postgres, infra-aws 9), 0 skipped
 pnpm build          # PASS
-pnpm ai:verify      # PASS (29 entries)
+pnpm ai:verify      # PASS (30 entries)
 ```
 
 ## What I skipped and why
