@@ -30,10 +30,10 @@ Cloudflare's published list prices as read on 2026-10-01.
 - **Cost:** about **$100/month** today, **$181** at 3× and **$480** at 10×.
   Not built on purpose: multi-region, autoscaling, Kubernetes, a cache tier,
   user authentication (see `SECURITY.md` §10).
-- **The one thing to fix before go-live:** reports read every journal line in
-  history. With one year of data, measured report throughput falls from ~70 to
-  ~5 requests/second ([§13](#capacity-arithmetic)). Monthly balance rollups
-  (ADR-003) fix this, and they are milestone 1 of the next phase.
+- **Fixed before go-live:** reports used to read every journal line in history;
+  with one year of data they fell to ~5 requests/second. Daily balance rollups
+  (ADR-003) brought the worst case to 342 req/s, p99 95 ms, at the same volume
+  ([§13](#capacity-arithmetic), [evidence](evidence/rollups.md)).
 
 ## 2. Current vs target
 
@@ -280,8 +280,11 @@ production; a fix rolls forward as a new migration.
 | Latency (reports)      | p95 < 800 ms              | p95 > 800 ms for 10 min                     | Lead engineer                |
 | Freshness (reports)    | 0 s: read from the ledger | Reporting 5xx (upstream timeout) > 1%       | Lead engineer                |
 
-Reports have no cache, so freshness is immediate by construction. Their latency
-target is looser than ledger reads until rollups land (§13).
+Reports have no cache, so freshness is immediate by construction: the rollups
+are written in the same transaction as each post and void. Rehearsal p99 is
+≤ 103 ms, so the 800 ms report target leaves room for Render's smaller CPUs.
+**Rollup drift:** a nightly job runs `SELECT count(*) FROM ledger_rollup_drift`
+and alerts if it is not 0.
 
 ## 11. Security controls
 
@@ -320,13 +323,14 @@ about 9 months out (1.3⁸·⁸ ≈ 10, around mid-2027).
 
 **First money as traffic grows:** the database plan (CPU), triggered by Postgres
 CPU above 70% for 15 minutes at peak or report p95 above 800 ms. The engineering
-fix (rollups, ADR-003) comes before any spend. It is cheaper than every plan
-upgrade and removes the dependence on history size.
+fix that would otherwise come first (rollups, ADR-003) is already done.
 
-**Where the model breaks (10×):** report cost grows with lines scanned. Monthly
-rollups cap a report at "rollup rows + the current month's lines". At 10×, a
-single month has ~620,000 lines, roughly the one-year volume measured below, so
-monthly grain is too coarse again and rollups must go daily. The next limits are
+**Where the model breaks (10×):** reports no longer scale with lines; they read
+days × active accounts, and once tenancy lands that is per business, so it stays
+small. What grows with 10× traffic is posting: every post takes one global rollup
+lock (a deliberate `ponytail:` simplification, fine below ~10 writes/s; 10× is
+~1.3 writes/s at peak), and the list endpoint's `count(*)` over all entries
+(114 req/s today). The next limits are
 single-region (a Singapore outage means a 4 h restore elsewhere) and one write
 database. Both are acceptable for a bookkeeping product at this size, and both
 are named in ADR-002.
@@ -340,7 +344,7 @@ are named in ADR-002.
 | Bad migration                                  | Deploy blocked or wrong data        | `preDeployCommand` fails → deploy aborted; CI  | Old version keeps serving; fix forward. Wrong data: DB triggers block unbalanced/edited rows; PITR if needed | Idempotency: yes (CI migrates twice). Abort path: by Render design, untested |
 | Region outage                                  | Everything                          | Uptime monitor from two regions; Render status | Apply blueprint in another region, restore latest R2 dump, move DNS at Cloudflare (RPO 24 h, RTO 4 h)        | Restore from dump: yes (local). Cross-region rebuild: no                     |
 | Secret rotation failure                        | Reporting gets 401 from ledger      | 5xx on reporting; ledger 401 spike in logs     | Set the same token on both services (it is shared via `fromService`), redeploy both                          | Yes: rotation rehearsed (G5)                                                 |
-| Report overload (payday)                       | Slow dashboards; ledger posting OK  | Report p95 > 800 ms; DB CPU > 70%              | Upgrade DB plan (minutes, brief restart); ship rollups                                                       | Yes: measured at one year of history (below)                                 |
+| Report overload (payday)                       | Slow dashboards; ledger posting OK  | Report p95 > 800 ms; DB CPU > 70%              | Upgrade DB plan (minutes, brief restart); rollups already in place                                           | Yes: measured at one year of history, before and after rollups (below)       |
 | Docker `/dev/shm` exhausted (self-hosted only) | Report queries 500                  | `53100 could not resize shared memory` in logs | `shm_size: 256mb` on the Postgres container (now in both compose files)                                      | Found and fixed during this load test                                        |
 
 ### Capacity arithmetic
@@ -358,28 +362,29 @@ are named in ADR-002.
 **Capacity (measured; dev laptop, 2 replicas per API, local Postgres 16,
 autocannon 10 connections × 15 s):**
 
-| Endpoint                          | 1 month of history (62k lines) | 1 year of history (744k lines)          |
-| --------------------------------- | ------------------------------ | --------------------------------------- |
-| `GET /api/journal-entries` (list) | 462 req/s · p50 20 ms          | 108 req/s · p50 87 ms · p99 172 ms      |
-| `GET /api/reports/trial-balance`  | 73 req/s · p50 128 ms          | 4.8 req/s · p50 1,550 ms · p99 3,709 ms |
-| `GET /api/reports/dashboard`      | 64 req/s · p50 148 ms          | 4.7 req/s · p50 1,568 ms · p99 4,101 ms |
-| `GET /api/reports/balance-sheet`  | 71 req/s · p50 130 ms          | 4.9 req/s · p50 1,470 ms · p99 4,684 ms |
+| Endpoint                          | 1 month of history (62k lines) | 1 year of history (744k lines)          | 1 year, daily rollups (late month) |
+| --------------------------------- | ------------------------------ | --------------------------------------- | ---------------------------------- |
+| `GET /api/journal-entries` (list) | 462 req/s · p50 20 ms          | 108 req/s · p50 87 ms · p99 172 ms      | 114 req/s · p50 82 ms · p99 169 ms |
+| `GET /api/reports/trial-balance`  | 73 req/s · p50 128 ms          | 4.8 req/s · p50 1,550 ms · p99 3,709 ms | 342 req/s · p50 24 ms · p99 95 ms  |
+| `GET /api/reports/dashboard`      | 64 req/s · p50 148 ms          | 4.7 req/s · p50 1,568 ms · p99 4,101 ms | 213 req/s · p50 43 ms · p99 103 ms |
+| `GET /api/reports/balance-sheet`  | 71 req/s · p50 130 ms          | 4.9 req/s · p50 1,470 ms · p99 4,684 ms | 452 req/s · p50 20 ms · p99 44 ms  |
 
 The one-month column is from [G4](evidence/G4-deploy-rehearsal.md). The one-year
-column was run on 2026-10-01 against the same stack after loading the drill
-dataset (rate limit raised for the test).
+columns were run on 2026-10-01 against the same stack after loading the drill
+dataset (rate limit raised for the test); the last one at `asOf=2026-09-29`,
+the worst case for any month-based shortcut ([evidence](evidence/rollups.md)).
 
 - **Lists:** 8 req/s needed vs 108 measured. More than 10× headroom.
-- **Reports:** 4 req/s needed vs ~5 measured at one year of history, on a laptop
-  whose Postgres used 3 cores in parallel. Render's `basic-1gb` has 0.5 CPU, so
-  expect worse. **There is no headroom at 1× once a year of history exists**,
-  and the client already has a year. `EXPLAIN ANALYZE` shows why: one report
-  scans and hash-joins every posted line (315 ms of CPU, all in cache). No index
-  helps a full-history sum. Adding API instances does not help either: the work
-  is in the database.
-- **With monthly rollups** a report reads ≤ accounts × months rollup rows plus
-  the current month's lines (≤ 62k at 1×). That is the one-month column again:
-  ~70 req/s, 17× headroom at 1× and ~6× at 3×.
+- **Reports before rollups:** 4 req/s needed vs ~5 measured at one year of
+  history; there was no headroom at 1×, and the client already has a year.
+  `EXPLAIN ANALYZE` showed why: one report scanned and hash-joined every posted
+  line (315 ms of CPU, all in cache). No index helps a full-history sum, and
+  adding API instances does not help because the work is in the database.
+- **With daily rollups:** 213–452 req/s for reports, about 50× the 1× need and 5×
+  the 10× need (40 req/s), on this laptop. Render's `basic-1gb` has 0.5 CPU
+  against the laptop's several cores, so expect a fraction of that there
+  (**estimate**: ÷ 6 still covers 3×). Measure it at go-live before trusting the
+  10× figure.
 - **Connections:** 2 × 10 + 1 = 21 of 100 at 1×; at 10× (4 + 2 instances, only
   the ledger holds a pool) 4 × 10 + 1 = 41 of 200 on the 2c-8g plan.
 - **Storage:** 209 MB / 744,002 lines ≈ 280 bytes per line including indexes.
@@ -420,22 +425,24 @@ dataset (rate limit raised for the test).
 > _Consequences:_ the database is the scaling resource (§13); region loss relies
 > on the daily off-platform dump.
 
-> **ADR-003 — Reports aggregate in SQL now; monthly balance rollups next.**
+> **ADR-003 — Reports read daily balance rollups maintained by triggers.**
 > _Context:_ reports originally loaded every posting into JavaScript (and the
 > reporting API pulled all of them over HTTP): 6 req/s at one month of data.
 > _Options:_ (a) keep JS aggregation; (b) SQL `GROUP BY` per request (done in G4);
 > (c) a materialized view refreshed on a schedule; (d) a Redis cache in front of
-> reports; (e) an `account_balances_monthly` rollup maintained in the same
-> transaction as each post/void.
-> _Decision:_ (b) now, (e) as milestone 1 of the next phase. _Why:_ (b) gave 12×
-> and was small. Measured at one year of history it is not enough (§13). (c) is
+> reports; (e) monthly rollups plus raw lines for partial months; (f) daily
+> rollups maintained in the same transaction as each post/void.
+> _Decision:_ (b) in G4, then (f) (`0004_balance_rollups.sql`). _Why:_ (b) gave
+> 12× and was small, but at one year of history it fell to ~5 req/s (§13). (c) is
 > stale between refreshes and `REFRESH` contends with writes. (d) adds a service,
-> and invalidation is wrong on back-dated entries, which accounting has. (e) is
-> exact, transactional, and makes report cost independent of history. Closed
-> periods (`LEDGER_CLOSED_THROUGH`) can never change, so their rows are final.
-> _Consequences:_ a new table and trigger, a backfill migration, and a
-> reconciliation check (rollup vs raw sum), which is exactly what the
-> `reporting-verifier` agent automates.
+> and invalidation is wrong on back-dated entries, which accounting has. (e) was
+> built and measured first: Postgres seq-scanned every line to fetch one partial
+> month, so late in a month it managed only 15 req/s. (f) has no raw part at all
+> and less code: 342 req/s at the late-month worst case.
+> _Consequences:_ two trigger-maintained tables (app role read-only), a backfill
+> that blocks writes for ~12 s per year of history, one global lock per posting
+> transaction, and `ledger_rollup_drift`, a view that must stay empty (nightly
+> check, and asserted in the contract test).
 
 > **ADR-004 — Plain idempotent SQL migrations, applied as a pre-deploy step.**
 > _Options:_ (a) `drizzle-kit migrate` with its tracking table; (b) Flyway or

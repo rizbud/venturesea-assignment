@@ -25,8 +25,9 @@ const adapters: Adapter[] = [{ name: "memory", create: async () => new InMemoryL
 
 const pgUrl = process.env.TEST_DATABASE_URL;
 const pg = pgUrl ? createDatabase(pgUrl, { max: 4 }) : undefined;
-// TRUNCATE skips row triggers, so the append-only guards do not block test resets.
-const resetPg = async () => pg!.sql`TRUNCATE journal_lines, journal_entries, accounts CASCADE`;
+// TRUNCATE skips row triggers, so the append-only guards do not block test resets
+// (and the rollups must be reset with them; CASCADE covers account_balances_daily).
+const resetPg = async () => pg!.sql`TRUNCATE journal_lines, journal_entries, accounts, ledger_days CASCADE`;
 if (pg) {
   adapters.push({
     name: "postgres",
@@ -190,8 +191,85 @@ describe.each(adapters)("LedgerRepository contract ($name)", (adapter) => {
     expect(march.rows.find((r) => r.code === "1000")?.debitMinor).toBe(350);
   });
 
+  it("matches the reference across month and year boundaries", async () => {
+    const dates = [
+      "2025-12-31",
+      "2026-01-01",
+      "2026-01-15",
+      "2026-01-31",
+      "2026-02-01",
+      "2026-02-28",
+      "2026-03-10",
+    ];
+    for (const [i, date] of dates.entries()) await sale(100 * (i + 1), date);
+    // Void a day's only entry and one entry on a day that keeps others.
+    const febFirst = await sale(5_000, "2026-02-01");
+    const lonely = await sale(9_000, "2025-11-05");
+    await repo.voidJournalEntry(febFirst.id);
+    await repo.voidJournalEntry(lonely.id);
+    const postings = await repo.listPostings();
+    const byCode = (rows: { code: string }[]) => [...rows].sort((a, b) => a.code.localeCompare(b.code));
+    for (const range of [
+      {},
+      { to: "2026-01-31" },
+      { from: "2026-01-01", to: "2026-01-31" },
+      { from: "2026-01-02", to: "2026-02-27" },
+      { from: "2025-12-15", to: "2026-03-01" },
+      { from: "2026-02-01" },
+      { from: "2025-11-01", to: "2025-11-30" },
+      { from: "2026-01-31", to: "2026-02-01" },
+      { to: "2025-12-31" },
+    ]) {
+      const actual = await repo.accountTotals(range);
+      const expected = accountTotals(postings, range);
+      expect(byCode(actual.rows), JSON.stringify(range)).toEqual(byCode(expected.rows));
+      expect(actual.entryCount, JSON.stringify(range)).toBe(expected.entryCount);
+    }
+  });
+
   it("returns undefined when voiding an unknown entry", async () => {
     expect(await repo.voidJournalEntry("je_missing")).toBeUndefined();
+  });
+});
+
+describe.skipIf(!pg)("Postgres daily rollups (0004_balance_rollups.sql)", () => {
+  it("stay equal to the raw lines through concurrent posts and voids", async () => {
+    await resetPg();
+    const repo = new PostgresLedgerRepository(pg!.db);
+    const cash = await repo.createAccount({ code: "1000", name: "Cash", type: "ASSET", currency: "USD" });
+    const sales = await repo.createAccount({ code: "4000", name: "Sales", type: "REVENUE", currency: "USD" });
+    const ids: string[] = [];
+    for (let i = 0; i < 20; i++) {
+      const entry = await repo.createJournalEntry({
+        date: `2026-0${(i % 3) + 1}-${String((i % 28) + 1).padStart(2, "0")}`,
+        memo: "Sale",
+        lines: [
+          { accountId: cash.id, amountMinor: 1_000 + i },
+          { accountId: sales.id, amountMinor: -(1_000 + i) },
+        ],
+      });
+      ids.push(entry.id);
+    }
+    // Concurrent posts and voids must neither deadlock nor lose an update.
+    await Promise.all([
+      ...ids.slice(0, 5).map((id) => repo.voidJournalEntry(id)),
+      ...[1, 2, 3].map((n) =>
+        repo.createJournalEntry({
+          date: "2026-02-14",
+          memo: "Concurrent",
+          lines: [
+            { accountId: cash.id, amountMinor: n },
+            { accountId: sales.id, amountMinor: -n },
+          ],
+        }),
+      ),
+    ]);
+
+    expect(await pg!.sql`SELECT * FROM ledger_rollup_drift`).toEqual([]);
+    const [counts] = await pg!.sql<{ rollup: number; raw: number }[]>`
+      SELECT (SELECT sum(posted_entries)::int FROM ledger_days) AS rollup,
+             (SELECT count(*)::int FROM journal_entries WHERE status = 'POSTED') AS raw`;
+    expect(counts!.rollup).toBe(counts!.raw);
   });
 });
 
@@ -273,7 +351,7 @@ describe.skipIf(!pg)("Postgres enforces the invariants itself (bypassing the app
   });
 });
 
-describe.skipIf(!pg)("Postgres least-privilege runtime role (0003_app_role.sql)", () => {
+describe.skipIf(!pg)("Postgres least-privilege runtime role (0003, 0004)", () => {
   // Disposable test database only: the role password is a throwaway test value.
   const appUrl = () => {
     const url = new URL(pgUrl!);
@@ -289,11 +367,12 @@ describe.skipIf(!pg)("Postgres least-privilege runtime role (0003_app_role.sql)"
         CREATE ROLE ledgerlab_app LOGIN PASSWORD 'test-only-not-a-secret';
       END IF; END $$;`);
     const { readFile } = await import("node:fs/promises");
-    const grants = await readFile(
-      new URL("../../../../packages/db/migrations/0003_app_role.sql", import.meta.url),
-      "utf8",
-    );
-    await pg!.sql.unsafe(grants);
+    // Re-apply the migrations that grant to the role, now that it exists.
+    for (const file of ["0003_app_role.sql", "0004_balance_rollups.sql"]) {
+      await pg!.sql.unsafe(
+        await readFile(new URL(`../../../../packages/db/migrations/${file}`, import.meta.url), "utf8"),
+      );
+    }
 
     const app = createDatabase(appUrl(), { max: 1 });
     try {
@@ -322,6 +401,13 @@ describe.skipIf(!pg)("Postgres least-privilege runtime role (0003_app_role.sql)"
       );
       await expect(app.sql`DELETE FROM accounts`).rejects.toThrow(/permission denied/);
       await expect(app.sql`UPDATE accounts SET name = 'renamed'`).rejects.toThrow(/permission denied/);
+      // Rollups are written only by the owner-run triggers (which just ran above).
+      await expect(app.sql`UPDATE account_balances_daily SET debit_minor = 0`).rejects.toThrow(
+        /permission denied/,
+      );
+      await expect(app.sql`INSERT INTO ledger_days VALUES ('2030-01-01', 1)`).rejects.toThrow(
+        /permission denied/,
+      );
       await expect(app.sql`CREATE TABLE sneaky (id int)`).rejects.toThrow(/permission denied/);
       await expect(app.sql`DROP TRIGGER journal_lines_append_only ON journal_lines`).rejects.toThrow(
         /must be owner/,

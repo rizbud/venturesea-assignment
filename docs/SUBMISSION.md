@@ -49,6 +49,9 @@ The origin side is built and tested, and the exact configuration is in
   measurements at one year of history, region/plan fixes in the blueprint,
   `shm_size` fix, source map no longer published.
 - **G10, next phase** (`45b091e`): the 13-week plan.
+- **Daily balance rollups** (after G10): reports read trigger-maintained daily
+  totals instead of every line; 4.8 → 342 req/s at one year of history; a drift
+  view that must stay empty; a concurrency test that caught a deadlock.
 
 ## Challenge suite
 
@@ -149,11 +152,13 @@ frame-ancestors 'none'`, `x-content-type-options: nosniff`,
   ([evidence](evidence/G9-restore-drill.md)). The Render PITR drill is step 3 of
   the go-live checklist.
 - **Cost at 1× / 3× / 10×:** ≈ $100 / $181 / $480 per month.
-- **First bottleneck at 10×:** database CPU on reports. Measured: at one year
-  of history, reports drop from ~70 to ~5 req/s because every report scans all
-  lines. Monthly rollups fix it; at 10× they must go daily.
-- **ADRs:** Render over AWS/GCP/Azure; managed Postgres, single region; SQL
-  aggregation now and rollups next; idempotent SQL migrations as a pre-deploy
+- **First bottleneck (found and fixed):** at one year of history reports fell
+  to ~5 req/s because each one scanned every line. Daily balance rollups
+  (`0004_balance_rollups.sql`) brought the late-month worst case to 342 req/s,
+  p99 95 ms ([evidence](evidence/rollups.md)). At 10×, the next limits are the
+  global rollup lock on posting and single-region.
+- **ADRs:** Render over AWS/GCP/Azure; managed Postgres, single region; daily
+  balance rollups maintained by triggers; idempotent SQL migrations as a pre-deploy
   step; Cloudflare with a shared-secret origin lock.
 
 ## Next-phase plan (G10)
@@ -163,7 +168,7 @@ frame-ancestors 'none'`, `x-content-type-options: nosniff`,
   with zero unbalanced entries; tenant isolation; 30 days of measured ≥ 99.9%
   before due diligence; payday-fast reports with a year of history.
 - **Prioritisation method and top initiative:** dated commitments first, then
-  RICE. Top: go-live (Render, domain, Cloudflare, monitoring), then rollups.
+  RICE. Top: go-live (Render, domain, Cloudflare, monitoring); rollups are done.
 - **Milestones + exit criteria:** M1 by 16 Oct (Cloudflare verification passes,
   PITR drill identical, report p95 < 800 ms at one year of data); M2 by 27 Nov
   (cross-tenant suite fails closed, audit row for 100% of mutations, bank
@@ -175,7 +180,7 @@ frame-ancestors 'none'`, `x-content-type-options: nosniff`,
 
 ## AI usage
 
-- **Entries in `docs/ai/prompt-log.jsonl`:** 27 (23 accepted, 1 edited, 1 rejected,
+- **Entries in `docs/ai/prompt-log.jsonl`:** 28 (24 accepted, 1 edited, 1 rejected,
   2 reverted).
 - **A prompt I rejected and why:** switching the default currency to IDR
   (proposed after "why using $ and not Rp?"). The developer kept USD; nothing
@@ -211,9 +216,9 @@ Run on 2026-10-01 with `TEST_DATABASE_URL` pointing at Postgres 16
 ```
 pnpm format:check   # PASS
 pnpm typecheck      # PASS (6/6)
-pnpm test           # PASS: 96 tests (shared 29, reporting 9, ledger 58 incl. Postgres), 0 skipped
+pnpm test           # PASS: 99 tests (shared 29, reporting 9, ledger 61 incl. Postgres), 0 skipped
 pnpm build          # PASS
-pnpm ai:verify      # PASS (27 entries)
+pnpm ai:verify      # PASS (28 entries)
 ```
 
 ## What I skipped and why
@@ -223,9 +228,6 @@ pnpm ai:verify      # PASS (27 entries)
   boundary is built, rehearsed and documented; no URL or screenshot is faked.
 - **Authentication and multi-tenancy:** out of scope for the test, and the
   biggest real gap; planned as M2 with ADRs.
-- **Report rollups:** the load test at one year of history showed they are
-  needed. They are a schema change on money tables, so they get their own
-  milestone with a reconciliation check rather than a rushed change today.
 - **Legacy SQLite import:** no legacy schema or file is in the repository; the
   approach (write through the repository port, verify trial-balance totals before
   and after) is documented, but it cannot be built blind.
@@ -236,7 +238,6 @@ pnpm ai:verify      # PASS (27 entries)
 ## If I had more time
 
 1. Provision Render + Cloudflare and run the production PITR drill (M1).
-2. Monthly balance rollups with a nightly rollup-vs-raw reconciliation, written
-   by `db-migrator`, reviewed by `ledger-architect`, proved by `reporting-verifier`.
+2. Schedule the nightly `ledger_rollup_drift` check and the off-site backup.
 3. Structured JSON logs and alerting per the infrastructure plan.
 4. OIDC + `business_id` with row-level security, then the audit log.

@@ -4,9 +4,10 @@ import { sumMinor } from "./money";
 
 /*
  * Reports are built from per-account totals (gross debits and credits), not from
- * raw postings. Postgres computes the totals with one GROUP BY, so a report costs
- * the same whether the ledger holds a hundred lines or a million. `accountTotals`
- * below is the in-memory reference implementation of that query.
+ * raw postings. Postgres sums trigger-maintained daily rollups
+ * (0004_balance_rollups.sql), so a report's cost follows days x accounts, not the
+ * number of lines. `accountTotals` below is the in-memory reference
+ * implementation; the contract test holds the Postgres adapter to it.
  */
 
 /**

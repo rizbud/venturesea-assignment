@@ -81,8 +81,9 @@ frame-ancestors 'none'` (JSON responses are never documents).
 
 - [x] Runtime role `ledgerlab_app` (`0003_app_role.sql`): `SELECT, INSERT` on the
       three tables, `UPDATE` only on `accounts.is_active` and
-      `journal_entries.status`. No `DELETE`, no `TRUNCATE` (which would bypass the
-      append-only triggers), no DDL. Migrations run as the owner via
+      `journal_entries.status`; `SELECT` only on the balance rollups, which only
+      owner-run triggers write (`0004`). No `DELETE`, no `TRUNCATE` (which would
+      bypass the append-only triggers), no DDL. Migrations run as the owner via
       `MIGRATION_DATABASE_URL`.
 - [x] Verified on Postgres 16: the role runs the full workload and is denied
       `TRUNCATE`, `DELETE`, column updates it does not need, `CREATE TABLE`, and

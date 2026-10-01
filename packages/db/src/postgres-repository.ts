@@ -13,7 +13,7 @@ import type {
   PostingRow,
 } from "@ledgerlab/shared";
 import { ConflictError, NotFoundError, createId, isBalanced, sumMinor } from "@ledgerlab/shared";
-import { accounts, journalEntries, journalLines } from "./schema";
+import { accountBalancesDaily, accounts, journalEntries, journalLines, ledgerDays } from "./schema";
 import type { Database } from "./client";
 
 type AccountRow = typeof accounts.$inferSelect;
@@ -216,36 +216,33 @@ export class PostgresLedgerRepository implements LedgerRepository {
     return entry;
   }
 
+  /** Sums the trigger-maintained daily rollups (0004_balance_rollups.sql), not the lines. */
   async accountTotals(range: DateRange): Promise<AccountTotals> {
-    const where = and(
-      eq(journalEntries.status, "POSTED"),
-      range.from ? gte(journalEntries.entryDate, range.from) : undefined,
-      range.to ? lte(journalEntries.entryDate, range.to) : undefined,
-    );
-    const rows = await this.db
-      .select({
-        accountId: accounts.id,
-        code: accounts.code,
-        name: accounts.name,
-        type: accounts.type,
-        debitMinor:
-          sql<number>`coalesce(sum(${journalLines.amountMinor}) filter (where ${journalLines.amountMinor} > 0), 0)`.mapWith(
-            Number,
-          ),
-        creditMinor:
-          sql<number>`coalesce(-sum(${journalLines.amountMinor}) filter (where ${journalLines.amountMinor} < 0), 0)`.mapWith(
-            Number,
-          ),
-      })
-      .from(journalLines)
-      .innerJoin(journalEntries, eq(journalLines.entryId, journalEntries.id))
-      .innerJoin(accounts, eq(journalLines.accountId, accounts.id))
-      .where(where)
-      .groupBy(accounts.id);
-    const [count] = await this.db
-      .select({ value: sql<number>`count(*)::int` })
-      .from(journalEntries)
-      .where(where);
+    const days = (column: typeof accountBalancesDaily.day | typeof ledgerDays.day) =>
+      and(range.from ? gte(column, range.from) : undefined, range.to ? lte(column, range.to) : undefined);
+    const [rows, [count]] = await Promise.all([
+      this.db
+        .select({
+          accountId: accounts.id,
+          code: accounts.code,
+          name: accounts.name,
+          type: accounts.type,
+          debitMinor: sql<number>`sum(${accountBalancesDaily.debitMinor})`.mapWith(Number),
+          creditMinor: sql<number>`sum(${accountBalancesDaily.creditMinor})`.mapWith(Number),
+        })
+        .from(accountBalancesDaily)
+        .innerJoin(accounts, eq(accountBalancesDaily.accountId, accounts.id))
+        .where(days(accountBalancesDaily.day))
+        .groupBy(accounts.id)
+        // A voided day leaves a 0/0 row; the reference omits accounts with no posted lines.
+        .having(
+          sql`sum(${accountBalancesDaily.debitMinor}) <> 0 or sum(${accountBalancesDaily.creditMinor}) <> 0`,
+        ),
+      this.db
+        .select({ value: sql<number>`coalesce(sum(${ledgerDays.postedEntries}), 0)`.mapWith(Number) })
+        .from(ledgerDays)
+        .where(days(ledgerDays.day)),
+    ]);
     return {
       rows: rows.map((r) => ({ ...r, balanceMinor: r.debitMinor - r.creditMinor })),
       entryCount: count?.value ?? 0,

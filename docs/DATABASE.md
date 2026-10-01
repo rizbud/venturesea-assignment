@@ -116,6 +116,28 @@ Corrections are made the accounting way: void the entry and post a new one.
 runtime user must not hold that privilege (see Migrations). The API also
 rejects impossible dates with `400` before they reach the database.
 
+### Daily balance rollups (`0004_balance_rollups.sql`)
+
+```
+account_balances_daily(day, account_id, debit_minor, credit_minor)   PK (day, account_id)
+ledger_days(day, posted_entries)
+```
+
+Reports sum these, not the lines, so their cost follows days × active accounts
+instead of the number of lines (342 req/s vs 4.8 at one year of history;
+[evidence](evidence/rollups.md)). Triggers on `journal_lines` insert and on
+`journal_entries` insert/status change keep them exact in the same transaction
+as each post or void. The trigger functions are `SECURITY DEFINER`, so the
+runtime role can only read the rollups. Every rollup writer first takes one
+transaction-level advisory lock, so concurrent posts and voids cannot deadlock.
+
+`ledger_rollup_drift` lists every (day, account) where a rollup disagrees with
+the raw lines. It must be empty: the contract test asserts it, and production
+checks it nightly. If it is ever not empty, rebuild from the raw lines (the
+backfill query in the migration) and find the write path that bypassed the
+triggers. The test reset (`TRUNCATE`) must include `ledger_days`;
+`account_balances_daily` goes with `accounts … CASCADE`.
+
 ## Migrations
 
 - Runner: `packages/db/migrate.mjs`. It is plain Node whose only dependency is
@@ -128,7 +150,8 @@ rejects impossible dates with `400` before they reach the database.
 - Never auto-sync schema in production. Run migrations as a deploy step or a
   one-off job, with the DB user that owns the schema.
 - The app's runtime user should be least-privilege (SELECT/INSERT/UPDATE on the
-  three tables; no DDL, no TRUNCATE, outside the migration step).
+  three tables, SELECT only on the rollups; no DDL, no TRUNCATE, outside the
+  migration step).
 - Keep migrations forward-only and idempotent (`CREATE TABLE IF NOT EXISTS`,
   guarded `ALTER`s, `CREATE OR REPLACE`): `migrate.mjs` has no applied-migrations
   table and re-runs every file on each deploy.

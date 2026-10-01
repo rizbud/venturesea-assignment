@@ -20,8 +20,10 @@ step, least-privilege role, secure headers, rate limits, origin lock) is built
 and rehearsed end to end, and every AI-assisted change is in the prompt log.
 **Not done yet:** the Render account, domain and Cloudflare are not provisioned,
 so nothing is publicly live or monitored. There is no user authentication or
-tenant separation. And the load test found that reports slow from ~70 to ~5
-requests/second once a year of history exists. Warung Books has 1,400 paying
+tenant separation. The load test found that reports fell from ~70 to ~5
+requests/second once a year of history existed; daily balance rollups, built
+on 2026-10-01, brought the worst case to 342 req/s
+([evidence](evidence/rollups.md)). Warung Books has 1,400 paying
 businesses, growing ~30% a month, and one engineer.
 
 ## 2. Outcomes for this phase
@@ -53,7 +55,7 @@ appears only as a means in §4.
 | ----------------------------------------------- | ----- | ------ | ---------- | ------ | ----- | ------------------------------------------------------ |
 | Go-live: Render, domain, Cloudflare, monitoring | 1,400 | 3      | 100%       | 1      | 4,200 | **Now** (commitment: bank 17 Oct)                      |
 | Structured logs + error alerting                | 1,400 | 1      | 100%       | 0.5    | 2,800 | **Now** (M1)                                           |
-| Monthly balance rollups (infra ADR-003)         | 1,400 | 2      | 90%        | 1      | 2,520 | **Now** (M1; it blocks O5)                             |
+| Daily balance rollups (infra ADR-003)           | 1,400 | 2      | 90%        | 1      | 2,520 | **Done** 2026-10-01 (it blocked O5)                    |
 | Append-only audit log (who/when/where)          | 1,400 | 1      | 90%        | 1      | 1,260 | **Now** (commitment: CPA, bank)                        |
 | Auth + tenant scoping (OIDC + Postgres RLS)     | 1,400 | 3      | 80%        | 4      | 840   | **Now** (commitment: bank embed needs it)              |
 | Bank ledger export API (consented, read-only)   | 100   | 3      | 50%        | 3      | 50    | **Now** (commitment: O1; scope set by the bank's spec) |
@@ -80,9 +82,9 @@ diligence (28 Nov).
 
 | Milestone                        | Window                    | Contents                                                                                                                                                                                                                                                                          | Exit criteria (testable)                                                                                                                                                                                                                                                             |
 | -------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **M1 — Go live, pass review**    | 1 Oct → 16 Oct (2 weeks)  | Provision Render from the blueprint; domain + Cloudflare; uptime monitor; daily off-site dump; production PITR drill; monthly balance rollups with a reconciliation check; structured JSON logs; evidence pack for the bank; support the CPA's October close                      | Cloudflare verification block passes (`/api/internal` → edge 403, direct origin → 403, burst → 429); PITR drill fingerprints identical; report p95 < 800 ms under the load-test profile with 1 year of data; `reporting-verifier` ties out on production; bank pack delivered 16 Oct |
+| **M1 — Go live, pass review**    | 1 Oct → 16 Oct (2 weeks)  | Provision Render from the blueprint; domain + Cloudflare; uptime monitor; daily off-site dump; production PITR drill; nightly `ledger_rollup_drift` check (rollups themselves are done); structured JSON logs; evidence pack for the bank; support the CPA's October close        | Cloudflare verification block passes (`/api/internal` → edge 403, direct origin → 403, burst → 429); PITR drill fingerprints identical; report p95 < 800 ms under the load-test profile with 1 year of data; `reporting-verifier` ties out on production; bank pack delivered 16 Oct |
 | **M2 — Tenancy and embed**       | 19 Oct → 27 Nov (6 weeks) | OIDC sign-in (bought, ADR-P1); `business_id` on every table with Postgres row-level security (ADR-P2); audit log written in the same transaction as each post/void/deactivate; bank export API v1 (consented, read-only, per business); staging environment split from production | Cross-tenant test suite (read, write, report) fails closed in CI; audit row exists for 100% of mutations (nightly check); bank sandbox pulls a consented business's trial balance end to end; 30 days ≥ 99.9% on the monitor by 27 Nov; data room ready for 28 Nov                   |
-| **M3 — First cohort and growth** | 30 Nov → 31 Dec (5 weeks) | First 100 warungs through the embed; daily rollup grain (needed before 10×); statement CSV import if M2 landed on time; support tooling for the second hire                                                                                                                       | 100 businesses assessed by the bank; report p95 < 800 ms at the payday peak in production; zero high pen-test findings; on-call rota of two engineers                                                                                                                                |
+| **M3 — First cohort and growth** | 30 Nov → 31 Dec (5 weeks) | First 100 warungs through the embed; statement CSV import if M2 landed on time; support tooling for the second hire                                                                                                                                                               | 100 businesses assessed by the bank; report p95 < 800 ms at the payday peak in production; zero high pen-test findings; on-call rota of two engineers                                                                                                                                |
 
 **M2 cut line:** if the bank's API specification arrives after 26 Oct, bank
 export v1 shrinks to a signed CSV/JSON trial-balance download that a business
@@ -119,14 +121,14 @@ be safe without them.
 
 ## 6. Technical workstreams
 
-| Workstream                | Depends on                              | First PR                                                                                                                                                                                                                      | Risk                                                                                          |
-| ------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| Monthly balance rollups   | Infra plan ADR-003                      | `packages/db/migrations/0004_balance_rollups.sql` (table + trigger in the posting transaction + backfill); `accountTotals` in `postgres-repository.ts` reads rollups + current month; a contract test that rollup = raw sum   | Wrong totals if the trigger misses a void; mitigated by the nightly rollup/raw reconciliation |
-| Authentication + tenancy  | ADR-P1, ADR-P2                          | `0005_business_id.sql` (nullable column, backfill to one tenant, then NOT NULL + RLS policies); JWT verification middleware in `packages/shared/src/http.ts`; `SET LOCAL app.business_id` per request in the Postgres adapter | Migration on live money tables; RLS bypass if any query runs as the owner role                |
-| Append-only audit log     | Tenancy (actor = user + business)       | `0006_audit_log.sql` (INSERT-only grant, same transaction as each mutation); writes in `ledger-service.ts`                                                                                                                    | Missing an entry point; nightly "every mutation has an audit row" check                       |
-| Bank export API           | Tenancy, the bank's spec, infra plan §7 | `GET /api/export/trial-balance` behind a per-business consent token; WAF rule allowing the bank's egress IPs                                                                                                                  | Spec churn; mitigated by the cut line                                                         |
-| Observability             | Go-live                                 | JSON logger in both `app.ts` (request id, route, status, duration, business id); alerts per infra plan §10                                                                                                                    | Low                                                                                           |
-| Multi-currency (deferred) | `packages/shared/src/reporting.ts`      | (not this phase) reports refuse to sum mixed currencies, then FX-rate table                                                                                                                                                   | —                                                                                             |
+| Workstream                   | Depends on                              | First PR                                                                                                                                                                                                                      | Risk                                                                                       |
+| ---------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Daily balance rollups (done) | Infra plan ADR-003                      | `0004_balance_rollups.sql`: two trigger-maintained tables, backfill, `ledger_rollup_drift` view; `accountTotals` sums the rollups; contract + concurrency tests                                                               | A missed trigger path would drift; the drift view is asserted in tests and checked nightly |
+| Authentication + tenancy     | ADR-P1, ADR-P2                          | `0005_business_id.sql` (nullable column, backfill to one tenant, then NOT NULL + RLS policies); JWT verification middleware in `packages/shared/src/http.ts`; `SET LOCAL app.business_id` per request in the Postgres adapter | Migration on live money tables; RLS bypass if any query runs as the owner role             |
+| Append-only audit log        | Tenancy (actor = user + business)       | `0006_audit_log.sql` (INSERT-only grant, same transaction as each mutation); writes in `ledger-service.ts`                                                                                                                    | Missing an entry point; nightly "every mutation has an audit row" check                    |
+| Bank export API              | Tenancy, the bank's spec, infra plan §7 | `GET /api/export/trial-balance` behind a per-business consent token; WAF rule allowing the bank's egress IPs                                                                                                                  | Spec churn; mitigated by the cut line                                                      |
+| Observability                | Go-live                                 | JSON logger in both `app.ts` (request id, route, status, duration, business id); alerts per infra plan §10                                                                                                                    | Low                                                                                        |
+| Multi-currency (deferred)    | `packages/shared/src/reporting.ts`      | (not this phase) reports refuse to sum mixed currencies, then FX-rate table                                                                                                                                                   | —                                                                                          |
 
 ## 7. Risks and mitigations
 
@@ -135,38 +137,38 @@ be safe without them.
 | Bank review slips (our evidence or their process) | Medium         | High   | Evidence pack is built from files already in the repo (`docs/evidence/*`); deliver 16 Oct; weekly call with their reviewer; Cloudflare done in M1 week 1                     | Author          |
 | Schema migration on live money data (tenancy)     | Medium         | High   | Add-backfill-enforce over three releases; rehearse on a restored copy of production (drill procedure); fingerprint before/after; DB triggers already block unbalanced writes | Author + hire 1 |
 | Single engineer bus factor                        | High until Nov | High   | Hire 1 by 2 Nov; everything reproducible from the repo (blueprint, runbooks, prompt log); Kira holds admin access                                                            | Kira            |
-| Reports degrade before rollups ship               | High           | Medium | Rollups are M1; stopgap is a DB plan upgrade (minutes, $36/month more)                                                                                                       | Author          |
+| Rollups drift from the raw lines                  | Low            | High   | Triggers in the posting transaction; drift view asserted in CI and checked nightly; rebuild from raw lines is one SQL statement                                              | Author          |
 | Bank spec arrives late                            | Medium         | Medium | M2 cut line (signed trial-balance download)                                                                                                                                  | Author          |
-| Growth outpaces the plan (10× by mid-2027)        | Medium         | Medium | Daily rollup grain in M3; infra plan §12 cost path; monthly capacity review against the load-test profile                                                                    | Hire 1          |
+| Growth outpaces the plan (10× by mid-2027)        | Medium         | Medium | Global rollup lock reviewed at 5 writes/s; infra plan §12 cost path; monthly capacity review against the load-test profile                                                   | Hire 1          |
 
 ## 8. Metrics
 
-| Metric                                     | Now                                                      | Target                          | Source of truth                                                |
-| ------------------------------------------ | -------------------------------------------------------- | ------------------------------- | -------------------------------------------------------------- |
-| Paying businesses                          | 1,400                                                    | ~3,000 by 31 Dec (1,400 × 1.3³) | Billing system                                                 |
-| Weekly active businesses                   | Not measured (no tenant id yet)                          | ≥ 80% of paying                 | SQL: distinct `business_id` with an entry that week (after M2) |
-| % entries posted without support contact   | Not measured                                             | ≥ 95%                           | Helpdesk tags joined to entry counts (from M3, hire 2)         |
-| Unbalanced posted entries                  | 0 (enforced by the DB trigger)                           | 0                               | Nightly SQL check; trigger `ledger_check_entry_balanced`       |
-| p95 ledger-read latency                    | Rehearsal: p99 172 ms (1 year of data); production: none | < 300 ms                        | Render metrics + uptime monitor                                |
-| p95 report latency                         | Rehearsal: p99 3.7 s at 1 year of history                | < 800 ms                        | Render metrics                                                 |
-| Availability                               | Not measured (not yet live)                              | ≥ 99.9% / month                 | External uptime monitor on both `/health`                      |
-| Restore time (drill)                       | 17 s local, 1 year of data                               | < 1 h on production PITR        | `docs/evidence/G9-restore-drill.md`                            |
-| Support tickets / 100 businesses / month   | Not measured                                             | Baseline in M1, then −20%       | Helpdesk                                                       |
-| Businesses assessed through the bank embed | 0                                                        | 100 by 31 Dec                   | Bank export API logs (consented pulls)                         |
+| Metric                                     | Now                                                                      | Target                          | Source of truth                                                |
+| ------------------------------------------ | ------------------------------------------------------------------------ | ------------------------------- | -------------------------------------------------------------- |
+| Paying businesses                          | 1,400                                                                    | ~3,000 by 31 Dec (1,400 × 1.3³) | Billing system                                                 |
+| Weekly active businesses                   | Not measured (no tenant id yet)                                          | ≥ 80% of paying                 | SQL: distinct `business_id` with an entry that week (after M2) |
+| % entries posted without support contact   | Not measured                                                             | ≥ 95%                           | Helpdesk tags joined to entry counts (from M3, hire 2)         |
+| Unbalanced posted entries                  | 0 (enforced by the DB trigger)                                           | 0                               | Nightly SQL check; trigger `ledger_check_entry_balanced`       |
+| p95 ledger-read latency                    | Rehearsal: p99 172 ms (1 year of data); production: none                 | < 300 ms                        | Render metrics + uptime monitor                                |
+| p95 report latency                         | Rehearsal at 1 year of history: p99 3.7 s before rollups, ≤ 103 ms after | < 800 ms                        | Render metrics                                                 |
+| Availability                               | Not measured (not yet live)                                              | ≥ 99.9% / month                 | External uptime monitor on both `/health`                      |
+| Restore time (drill)                       | 17 s local, 1 year of data                                               | < 1 h on production PITR        | `docs/evidence/G9-restore-drill.md`                            |
+| Support tickets / 100 businesses / month   | Not measured                                                             | Baseline in M1, then −20%       | Helpdesk                                                       |
+| Businesses assessed through the bank embed | 0                                                                        | 100 by 31 Dec                   | Bank export API logs (consented pulls)                         |
 
 Three "not measured" rows are honest. The first deliverable for each is the
 instrument, not a number.
 
 ## 9. Explicitly deferred
 
-| Item                               | Why deferred                                                                                                                          | Revisit when                                                       |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| Localisation (Bahasa Indonesia UI) | Existing customers already use the product as is; no ticket data says language is the blocker                                         | Support tickets (hire 2) show language in the top 3 causes         |
-| Native mobile app                  | The dashboard works at 375 px; a store app is months of work for one engineer                                                         | > 30% of sessions are mobile and capture friction shows in tickets |
-| Real-time collaborative editing    | Micro-businesses have one bookkeeper; a ledger is append-only anyway                                                                  | Accountant collaboration becomes a paid tier                       |
-| Multi-currency                     | Few businesses are expected to need it (unmeasured); mixed-currency reports must first refuse to sum (cheap guard, done with rollups) | > 5% of businesses hold a foreign-currency account                 |
-| Multi-region / read replicas       | 0.13 writes/s; a priced 4 h region-loss RTO is acceptable (infra ADR-002)                                                             | A contract requires a lower RTO, or 10× traffic                    |
-| Splitting more services            | Two services already carry the operational cost; boundaries are clean behind the repository port                                      | A team owns a domain end to end (≥ 4 engineers)                    |
+| Item                               | Why deferred                                                                                                         | Revisit when                                                       |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Localisation (Bahasa Indonesia UI) | Existing customers already use the product as is; no ticket data says language is the blocker                        | Support tickets (hire 2) show language in the top 3 causes         |
+| Native mobile app                  | The dashboard works at 375 px; a store app is months of work for one engineer                                        | > 30% of sessions are mobile and capture friction shows in tickets |
+| Real-time collaborative editing    | Micro-businesses have one bookkeeper; a ledger is append-only anyway                                                 | Accountant collaboration becomes a paid tier                       |
+| Multi-currency                     | Few businesses are expected to need it (unmeasured); mixed-currency reports must first refuse to sum (a cheap guard) | > 5% of businesses hold a foreign-currency account                 |
+| Multi-region / read replicas       | 0.13 writes/s; a priced 4 h region-loss RTO is acceptable (infra ADR-002)                                            | A contract requires a lower RTO, or 10× traffic                    |
+| Splitting more services            | Two services already carry the operational cost; boundaries are clean behind the repository port                     | A team owns a domain end to end (≥ 4 engineers)                    |
 
 ## 10. Decision log
 
@@ -198,10 +200,12 @@ instrument, not a number.
 
 > **ADR-P3 — Fix report cost with rollups before buying a bigger database.**
 > _Options:_ (a) upgrade the DB plan as history grows; (b) cache report
-> responses; (c) monthly rollups maintained in the posting transaction.
-> _Decision:_ (c) in M1, with (a) as the same-day stopgap.
+> responses; (c) monthly rollups plus raw partial months; (d) daily rollups
+> maintained in the posting transaction.
+> _Decision:_ (d), done on 2026-10-01 ahead of M1.
 > _Why:_ the load test showed report cost proportional to history (§1). (a)
-> buys months at a rising price, and (b) is wrong on back-dated entries. Detail
-> in infra plan ADR-003.
-> _Consequences:_ a reconciliation check (rollup vs raw) becomes part of the
-> nightly checks and of the `reporting-verifier` agent's job.
+> buys months at a rising price, and (b) is wrong on back-dated entries. (c) was
+> built and measured: it still seq-scanned every line for the partial month (15
+> req/s late in the month). (d) reached 342 req/s. Detail in infra plan ADR-003.
+> _Consequences:_ a reconciliation check (`ledger_rollup_drift` must be empty)
+> is part of CI and of the nightly checks.

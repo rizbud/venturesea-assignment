@@ -1,4 +1,15 @@
-import { bigint, date, integer, pgEnum, pgTable, text, timestamp, varchar, index } from "drizzle-orm/pg-core";
+import {
+  bigint,
+  date,
+  integer,
+  pgEnum,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  varchar,
+  index,
+} from "drizzle-orm/pg-core";
 
 export const accountTypeEnum = pgEnum("account_type", ["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"]);
 
@@ -53,6 +64,26 @@ export const journalLines = pgTable(
   ],
 );
 
+/** Gross POSTED debits/credits per account per day; written only by triggers (0004). */
+export const accountBalancesDaily = pgTable(
+  "account_balances_daily",
+  {
+    day: date("day", { mode: "string" }).notNull(),
+    accountId: varchar("account_id", { length: 64 })
+      .notNull()
+      .references(() => accounts.id, { onDelete: "restrict" }),
+    debitMinor: bigint("debit_minor", { mode: "number" }).notNull().default(0),
+    creditMinor: bigint("credit_minor", { mode: "number" }).notNull().default(0),
+  },
+  (table) => [primaryKey({ columns: [table.day, table.accountId] })],
+);
+
+/** POSTED entry count per day; written only by triggers (0004). */
+export const ledgerDays = pgTable("ledger_days", {
+  day: date("day", { mode: "string" }).primaryKey(),
+  postedEntries: integer("posted_entries").notNull().default(0),
+});
+
 // Invariants enforced in SQL (migrations/0002_integrity.sql), not modelled here:
 // balanced entries, non-zero lines, append-only lines/entries, POSTED -> VOID only.
-export const schema = { accounts, journalEntries, journalLines };
+export const schema = { accounts, journalEntries, journalLines, accountBalancesDaily, ledgerDays };
