@@ -15,6 +15,8 @@ export interface CreateAppOptions {
   rateLimitPerMinute?: number;
   /** When set, every request except /health must carry it in X-Origin-Secret (added by Cloudflare). */
   originSecret?: string;
+  /** Header holding the real client IP when only Cloudflare can reach us (CLIENT_IP_HEADER). */
+  clientIpHeader?: string;
 }
 
 export function createReportingApp({
@@ -22,6 +24,7 @@ export function createReportingApp({
   corsOrigins = ["*"],
   rateLimitPerMinute = 120,
   originSecret,
+  clientIpHeader,
 }: CreateAppOptions): Hono {
   const app = new Hono();
 
@@ -38,7 +41,7 @@ export function createReportingApp({
     }),
   );
 
-  app.use("/api/*", rateLimit({ max: rateLimitPerMinute }));
+  app.use("/api/*", rateLimit({ max: rateLimitPerMinute, clientIpHeader }));
 
   app.route("/", healthRoutes("reporting-api"));
   app.route("/api/reports", reportRoutes(service));

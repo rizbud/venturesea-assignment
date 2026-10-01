@@ -18,6 +18,7 @@ const app = createReportingApp({
   corsOrigins,
   rateLimitPerMinute,
   originSecret: process.env.ORIGIN_SECRET?.trim() || undefined,
+  clientIpHeader: process.env.CLIENT_IP_HEADER?.trim().toLowerCase() || undefined,
 });
 
 const server = serve({ fetch: app.fetch, port, hostname }, (info) => {

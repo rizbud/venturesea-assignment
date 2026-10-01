@@ -5,6 +5,23 @@ import { schema } from "./schema";
 export type Database = ReturnType<typeof createDatabase>["db"];
 
 /**
+ * `DATABASE_URL`, or one built from the libpq variables (`PGHOST`, `PGPORT`,
+ * `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `PGSSLMODE`). ECS injects the RDS
+ * password as its own secret, so it cannot arrive pre-assembled in a URL.
+ * Undefined when neither is set.
+ */
+export function databaseUrlFromEnv(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const url = env.DATABASE_URL?.trim();
+  if (url) return url;
+  if (!env.PGHOST) return undefined;
+  // encodeURIComponent, not the URL setters: those leave "%" unencoded.
+  const auth = `${encodeURIComponent(env.PGUSER ?? "")}:${encodeURIComponent(env.PGPASSWORD ?? "")}`;
+  const db = encodeURIComponent(env.PGDATABASE ?? "postgres");
+  const ssl = env.PGSSLMODE ? `?sslmode=${encodeURIComponent(env.PGSSLMODE)}` : "";
+  return `postgres://${auth}@${env.PGHOST}:${env.PGPORT ?? 5432}/${db}${ssl}`;
+}
+
+/**
  * Create a Drizzle client bound to a Postgres connection pool.
  * Call `close()` on shutdown so the process can exit.
  *

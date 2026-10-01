@@ -1,0 +1,129 @@
+import { describe, expect, it } from "vitest";
+import { App } from "aws-cdk-lib";
+import { Match, Template } from "aws-cdk-lib/assertions";
+import { CLOUDFLARE_IPV4, LedgerLabStack, RegistryStack } from "../lib/stacks";
+
+const env = { account: "111111111111", region: "ap-southeast-3" };
+const synth = (props: { tasksPerService?: number; multiAz?: boolean } = {}) =>
+  Template.fromStack(
+    new LedgerLabStack(new App(), "LedgerLab", {
+      env,
+      domainName: "ledgerlab.example.com",
+      imageTag: "abc123",
+      ...props,
+    }),
+  );
+
+describe("LedgerLab stack", () => {
+  const template = synth();
+
+  it("runs every service as at least 2 Fargate tasks, rolling without dropping below 2", () => {
+    template.resourceCountIs("AWS::ECS::Service", 3);
+    template.allResourcesProperties("AWS::ECS::Service", {
+      DesiredCount: 2,
+      LaunchType: "FARGATE",
+      DeploymentConfiguration: Match.objectLike({
+        MinimumHealthyPercent: 100,
+        MaximumPercent: 200,
+        DeploymentCircuitBreaker: { Enable: true, Rollback: true },
+      }),
+      NetworkConfiguration: { AwsvpcConfiguration: Match.objectLike({ AssignPublicIp: "DISABLED" }) },
+    });
+    template.resourceCountIs("AWS::ApplicationAutoScaling::ScalableTarget", 3);
+    template.allResourcesProperties("AWS::ApplicationAutoScaling::ScalableTarget", {
+      MinCapacity: 2,
+      MaxCapacity: 6,
+    });
+  });
+
+  it("first deploy (tasksPerService=0) starts nothing until the migration has run", () => {
+    const first = synth({ tasksPerService: 0 });
+    first.allResourcesProperties("AWS::ECS::Service", { DesiredCount: 0 });
+    first.resourceCountIs("AWS::ApplicationAutoScaling::ScalableTarget", 0);
+  });
+
+  it("keeps Postgres private, encrypted, Multi-AZ, backed up and deletion-protected", () => {
+    template.hasResourceProperties("AWS::RDS::DBInstance", {
+      Engine: "postgres",
+      EngineVersion: Match.stringLikeRegexp("^16"),
+      MultiAZ: true,
+      StorageEncrypted: true,
+      PubliclyAccessible: false,
+      DeletionProtection: true,
+      BackupRetentionPeriod: 7,
+    });
+    template.hasResource("AWS::RDS::DBInstance", { DeletionPolicy: "Snapshot" });
+  });
+
+  it("lets only Cloudflare reach the load balancer, on 443 only", () => {
+    const groups = template.findResources("AWS::EC2::SecurityGroup", {
+      Properties: { GroupDescription: "HTTPS from Cloudflare only" },
+    });
+    const ingress = Object.values(groups)[0]!.Properties.SecurityGroupIngress as {
+      CidrIp: string;
+      FromPort: number;
+    }[];
+    expect(ingress.map((rule) => rule.CidrIp).sort()).toEqual([...CLOUDFLARE_IPV4].sort());
+    expect(new Set(ingress.map((rule) => rule.FromPort))).toEqual(new Set([443]));
+  });
+
+  it("injects credentials as secrets, never as plain environment values", () => {
+    const definitions = template.findResources("AWS::ECS::TaskDefinition");
+    const containers = Object.values(definitions).flatMap(
+      (d) => d.Properties.ContainerDefinitions as Record<string, unknown>[],
+    );
+    const env = (name: string) => containers.find((c) => c.Name === name)!;
+    const names = (list: unknown) => (list as { Name: string }[] | undefined)?.map((e) => e.Name) ?? [];
+
+    expect(names(env("ledger-api").Secrets)).toEqual(
+      expect.arrayContaining(["PGPASSWORD", "INTERNAL_API_TOKEN", "ORIGIN_SECRET"]),
+    );
+    expect(names(env("migrate").Secrets)).toEqual(
+      expect.arrayContaining(["PGUSER", "PGPASSWORD", "APP_DB_PASSWORD"]),
+    );
+    for (const container of containers) {
+      expect(names(container.Environment)).not.toContain("PGPASSWORD");
+      expect(names(container.Environment)).not.toContain("DATABASE_URL");
+      expect(names(container.Environment)).not.toContain("INTERNAL_API_TOKEN");
+    }
+    expect(env("ledger-api").Environment).toEqual(
+      expect.arrayContaining([
+        { Name: "PGUSER", Value: "ledgerlab_app" },
+        { Name: "PGSSLMODE", Value: "require" },
+        { Name: "CLIENT_IP_HEADER", Value: "cf-connecting-ip" },
+        { Name: "CORS_ORIGINS", Value: "https://ledgerlab.example.com" },
+      ]),
+    );
+    expect(env("migrate").Command).toEqual(["node", "dist/migrate.js"]);
+  });
+
+  it("routes each hostname to its service over HTTPS with health checks", () => {
+    template.hasResourceProperties("AWS::ElasticLoadBalancingV2::Listener", { Port: 443, Protocol: "HTTPS" });
+    template.resourcePropertiesCountIs("AWS::ElasticLoadBalancingV2::Listener", { Port: 80 }, 0);
+    for (const [host, path] of [
+      ["api.ledgerlab.example.com", "/health"],
+      ["reports.ledgerlab.example.com", "/health"],
+      ["ledgerlab.example.com", "/healthz"],
+    ] as const) {
+      template.hasResourceProperties("AWS::ElasticLoadBalancingV2::ListenerRule", {
+        Conditions: [{ Field: "host-header", HostHeaderConfig: { Values: [host] } }],
+      });
+      template.hasResourceProperties(
+        "AWS::ElasticLoadBalancingV2::TargetGroup",
+        Match.objectLike({ HealthCheckPath: path }),
+      );
+    }
+  });
+});
+
+describe("Registry stack", () => {
+  it("creates the three scanned image repositories", () => {
+    const template = Template.fromStack(new RegistryStack(new App(), "LedgerLabRegistry", { env }));
+    for (const name of ["ledger-api", "reporting-api", "web"]) {
+      template.hasResourceProperties("AWS::ECR::Repository", {
+        RepositoryName: `ledgerlab/${name}`,
+        ImageScanningConfiguration: { ScanOnPush: true },
+      });
+    }
+  });
+});

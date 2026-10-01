@@ -21,6 +21,8 @@ export interface CreateAppOptions {
   rateLimitPerMinute?: number;
   /** When set, every request except /health must carry it in X-Origin-Secret (added by Cloudflare). */
   originSecret?: string;
+  /** Header holding the real client IP when only Cloudflare can reach us (CLIENT_IP_HEADER). */
+  clientIpHeader?: string;
 }
 
 export function createLedgerApp({
@@ -29,6 +31,7 @@ export function createLedgerApp({
   internalToken,
   rateLimitPerMinute = 300,
   originSecret,
+  clientIpHeader,
 }: CreateAppOptions): Hono {
   const app = new Hono();
 
@@ -48,7 +51,7 @@ export function createLedgerApp({
   app.use("/api/*", limitBody());
   // Internal calls come from the reporting service's few IPs and are token-guarded,
   // so only browser-facing routes are rate limited.
-  const limiter = rateLimit({ max: rateLimitPerMinute });
+  const limiter = rateLimit({ max: rateLimitPerMinute, clientIpHeader });
   app.use("/api/*", (c, next) => (c.req.path.startsWith("/api/internal/") ? next() : limiter(c, next)));
 
   app.route(

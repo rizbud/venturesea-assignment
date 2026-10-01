@@ -1,5 +1,10 @@
 import type { LedgerRepository } from "@ledgerlab/shared";
-import { InMemoryLedgerRepository, PostgresLedgerRepository, createDatabase } from "@ledgerlab/db";
+import {
+  InMemoryLedgerRepository,
+  PostgresLedgerRepository,
+  createDatabase,
+  databaseUrlFromEnv,
+} from "@ledgerlab/db";
 
 export interface RepositoryHandle {
   repository: LedgerRepository;
@@ -9,12 +14,13 @@ export interface RepositoryHandle {
 /**
  * Choose a storage adapter from the environment.
  *
- *   DATABASE_URL set   -> Postgres via Drizzle (pool size: DATABASE_POOL_MAX, default 10)
- *   DATABASE_URL unset -> seeded in-memory, for local dev and tests only.
+ *   DATABASE_URL (or PGHOST + friends) set -> Postgres via Drizzle
+ *                         (pool size: DATABASE_POOL_MAX, default 10)
+ *   neither set        -> seeded in-memory, for local dev and tests only.
  *                         Refused when NODE_ENV=production: data would vanish on restart.
  */
 export function resolveLedgerRepository(env: NodeJS.ProcessEnv = process.env): RepositoryHandle {
-  const url = env.DATABASE_URL?.trim();
+  const url = databaseUrlFromEnv(env);
   if (url) {
     const max = Number(env.DATABASE_POOL_MAX ?? 10);
     if (!Number.isInteger(max) || max < 1) throw new Error(`DATABASE_POOL_MAX must be a positive integer`);

@@ -69,8 +69,15 @@ export function limitBody(maxKb = 64): MiddlewareHandler {
  * The client address as seen by the platform's proxy: the right-most
  * X-Forwarded-For entry is the one the proxy appended, so a client cannot spoof
  * it by sending its own header.
+ *
+ * Behind Cloudflare that entry is a Cloudflare edge address, shared by many
+ * users. Pass `header` ("cf-connecting-ip", env CLIENT_IP_HEADER) only where
+ * the origin accepts nothing but Cloudflare (AWS: ALB security group limited to
+ * Cloudflare's ranges); anywhere else a client could set it to anything.
  */
-export function clientIp(c: Context): string {
+export function clientIp(c: Context, header?: string): string {
+  const trusted = header ? c.req.header(header)?.trim() : undefined;
+  if (trusted) return trusted;
   const forwarded = c.req.header("x-forwarded-for");
   return forwarded?.split(",").at(-1)?.trim() || "unknown";
 }
@@ -82,7 +89,16 @@ export function clientIp(c: Context): string {
 // ponytail: per-instance memory, so the effective limit is max x instances. The
 // authoritative limit is the Cloudflare rule on /api/* (deployment/cloudflare);
 // move to a shared store (Redis) only if the edge limit is not available.
-export function rateLimit({ max, windowMs = 60_000 }: { max: number; windowMs?: number }): MiddlewareHandler {
+export function rateLimit({
+  max,
+  windowMs = 60_000,
+  clientIpHeader,
+}: {
+  max: number;
+  windowMs?: number;
+  /** See clientIp. */
+  clientIpHeader?: string;
+}): MiddlewareHandler {
   let counts = new Map<string, number>();
   let windowEnds = Date.now() + windowMs;
   return async (c, next) => {
@@ -91,7 +107,7 @@ export function rateLimit({ max, windowMs = 60_000 }: { max: number; windowMs?: 
       counts = new Map();
       windowEnds = now + windowMs;
     }
-    const ip = clientIp(c);
+    const ip = clientIp(c, clientIpHeader);
     const count = (counts.get(ip) ?? 0) + 1;
     counts.set(ip, count);
     c.header("RateLimit-Limit", String(max));

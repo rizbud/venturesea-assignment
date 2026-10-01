@@ -1,0 +1,6 @@
+{
+  "app": "tsx bin/app.ts",
+  "context": {
+    "region": "ap-southeast-3"
+  }
+}

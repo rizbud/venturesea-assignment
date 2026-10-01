@@ -1,9 +1,9 @@
-import { createDatabase } from "./client";
+import { createDatabase, databaseUrlFromEnv } from "./client";
 import { seedPostgres } from "./seed";
 
 async function main(): Promise<void> {
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error("DATABASE_URL is required to seed Postgres");
+  const url = databaseUrlFromEnv();
+  if (!url) throw new Error("DATABASE_URL (or PGHOST etc.) is required to seed Postgres");
   const { db, close } = createDatabase(url, { max: 1 });
   try {
     const { accounts, entries } = await seedPostgres(db);

@@ -1,6 +1,7 @@
 packages:
   - "apps/*"
   - "packages/*"
+  - "infra/*"
 
 # pnpm 10 blocks lifecycle scripts by default. esbuild needs its postinstall
 # to download the correct platform binary.

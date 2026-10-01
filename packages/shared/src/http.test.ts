@@ -58,6 +58,17 @@ describe("rateLimit", () => {
     expect((await a.request("/", from("9.9.9.9"))).status).toBe(200);
     expect((await a.request("/", from("6.6.6.6, 9.9.9.9"))).status).toBe(429);
   });
+
+  it("behind Cloudflare, keys on CF-Connecting-IP so users sharing an edge address get separate budgets", async () => {
+    const a = new Hono();
+    a.use("*", rateLimit({ max: 1, clientIpHeader: "cf-connecting-ip" }));
+    a.get("/", (c) => c.text("ok"));
+    // Same Cloudflare edge address appended by the load balancer, different users.
+    const user = (ip: string) => ({ headers: { "x-forwarded-for": "172.68.1.1", "cf-connecting-ip": ip } });
+    expect((await a.request("/", user("3.3.3.3"))).status).toBe(200);
+    expect((await a.request("/", user("4.4.4.4"))).status).toBe(200);
+    expect((await a.request("/", user("3.3.3.3"))).status).toBe(429);
+  });
 });
 
 describe("requireOriginSecret", () => {

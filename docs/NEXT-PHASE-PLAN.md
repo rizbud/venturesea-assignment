@@ -18,7 +18,7 @@ unbalanced or edited entries. Data lives in Postgres with a restore that was
 actually performed. The production shape (2 + 2 replicas, migrations as a deploy
 step, least-privilege role, secure headers, rate limits, origin lock) is built
 and rehearsed end to end, and every AI-assisted change is in the prompt log.
-**Not done yet:** the Render account, domain and Cloudflare are not provisioned,
+**Not done yet:** the AWS account, domain and Cloudflare are not provisioned,
 so nothing is publicly live or monitored. There is no user authentication or
 tenant separation. The load test found that reports fell from ~70 to ~5
 requests/second once a year of history existed; daily balance rollups, built
@@ -51,18 +51,18 @@ appears only as a means in §4.
    Impact 0.25 (minimal) to 3 (massive); Confidence as a percentage; Effort in
    engineer-weeks. Score = R × I × C ÷ E.
 
-| Initiative                                      | Reach | Impact | Confidence | Effort | Score | Decision                                               |
-| ----------------------------------------------- | ----- | ------ | ---------- | ------ | ----- | ------------------------------------------------------ |
-| Go-live: Render, domain, Cloudflare, monitoring | 1,400 | 3      | 100%       | 1      | 4,200 | **Now** (commitment: bank 17 Oct)                      |
-| Structured logs + error alerting                | 1,400 | 1      | 100%       | 0.5    | 2,800 | **Now** (M1)                                           |
-| Daily balance rollups (infra ADR-003)           | 1,400 | 2      | 90%        | 1      | 2,520 | **Done** 2026-10-01 (it blocked O5)                    |
-| Append-only audit log (who/when/where)          | 1,400 | 1      | 90%        | 1      | 1,260 | **Now** (commitment: CPA, bank)                        |
-| Auth + tenant scoping (OIDC + Postgres RLS)     | 1,400 | 3      | 80%        | 4      | 840   | **Now** (commitment: bank embed needs it)              |
-| Bank ledger export API (consented, read-only)   | 100   | 3      | 50%        | 3      | 50    | **Now** (commitment: O1; scope set by the bank's spec) |
-| Bank statement CSV import                       | 560   | 2      | 50%        | 3      | 187   | Next (M3, if capacity)                                 |
-| Bahasa Indonesia UI                             | 1,400 | 1      | 50%        | 2      | 350   | Later: measure support tickets first                   |
-| Mobile capture (PWA camera receipts)            | 1,000 | 1      | 50%        | 4      | 125   | Later                                                  |
-| Multi-currency reporting (reach assumed ~2%)    | 30    | 1      | 30%        | 3      | 3     | Later                                                  |
+| Initiative                                    | Reach | Impact | Confidence | Effort | Score | Decision                                               |
+| --------------------------------------------- | ----- | ------ | ---------- | ------ | ----- | ------------------------------------------------------ |
+| Go-live: AWS, domain, Cloudflare, monitoring  | 1,400 | 3      | 100%       | 1      | 4,200 | **Now** (commitment: bank 17 Oct)                      |
+| Structured logs + error alerting              | 1,400 | 1      | 100%       | 0.5    | 2,800 | **Now** (M1)                                           |
+| Daily balance rollups (infra ADR-003)         | 1,400 | 2      | 90%        | 1      | 2,520 | **Done** 2026-10-01 (it blocked O5)                    |
+| Append-only audit log (who/when/where)        | 1,400 | 1      | 90%        | 1      | 1,260 | **Now** (commitment: CPA, bank)                        |
+| Auth + tenant scoping (OIDC + Postgres RLS)   | 1,400 | 3      | 80%        | 4      | 840   | **Now** (commitment: bank embed needs it)              |
+| Bank ledger export API (consented, read-only) | 100   | 3      | 50%        | 3      | 50    | **Now** (commitment: O1; scope set by the bank's spec) |
+| Bank statement CSV import                     | 560   | 2      | 50%        | 3      | 187   | Next (M3, if capacity)                                 |
+| Bahasa Indonesia UI                           | 1,400 | 1      | 50%        | 2      | 350   | Later: measure support tickets first                   |
+| Mobile capture (PWA camera receipts)          | 1,000 | 1      | 50%        | 4      | 125   | Later                                                  |
+| Multi-currency reporting (reach assumed ~2%)  | 30    | 1      | 30%        | 3      | 3     | Later                                                  |
 
 The bank export scores lowest of the "Now" items, and that is the point of
 pass 1. It is the reason the bank exists in this plan. Its 50% confidence is
@@ -82,7 +82,7 @@ diligence (28 Nov).
 
 | Milestone                        | Window                    | Contents                                                                                                                                                                                                                                                                          | Exit criteria (testable)                                                                                                                                                                                                                                                             |
 | -------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **M1 — Go live, pass review**    | 1 Oct → 16 Oct (2 weeks)  | Provision Render from the blueprint; domain + Cloudflare; uptime monitor; daily off-site dump; production PITR drill; nightly `ledger_rollup_drift` check (rollups themselves are done); structured JSON logs; evidence pack for the bank; support the CPA's October close        | Cloudflare verification block passes (`/api/internal` → edge 403, direct origin → 403, burst → 429); PITR drill fingerprints identical; report p95 < 800 ms under the load-test profile with 1 year of data; `reporting-verifier` ties out on production; bank pack delivered 16 Oct |
+| **M1 — Go live, pass review**    | 1 Oct → 16 Oct (2 weeks)  | Deploy the AWS stacks (`deploy.sh`); domain + Cloudflare; uptime monitor; daily off-site dump; production PITR drill; nightly `ledger_rollup_drift` check (rollups themselves are done); structured JSON logs; evidence pack for the bank; support the CPA's October close        | Cloudflare verification block passes (`/api/internal` → edge 403, direct origin → 403, burst → 429); PITR drill fingerprints identical; report p95 < 800 ms under the load-test profile with 1 year of data; `reporting-verifier` ties out on production; bank pack delivered 16 Oct |
 | **M2 — Tenancy and embed**       | 19 Oct → 27 Nov (6 weeks) | OIDC sign-in (bought, ADR-P1); `business_id` on every table with Postgres row-level security (ADR-P2); audit log written in the same transaction as each post/void/deactivate; bank export API v1 (consented, read-only, per business); staging environment split from production | Cross-tenant test suite (read, write, report) fails closed in CI; audit row exists for 100% of mutations (nightly check); bank sandbox pulls a consented business's trial balance end to end; 30 days ≥ 99.9% on the monitor by 27 Nov; data room ready for 28 Nov                   |
 | **M3 — First cohort and growth** | 30 Nov → 31 Dec (5 weeks) | First 100 warungs through the embed; statement CSV import if M2 landed on time; support tooling for the second hire                                                                                                                                                               | 100 businesses assessed by the bank; report p95 < 800 ms at the payday peak in production; zero high pen-test findings; on-call rota of two engineers                                                                                                                                |
 
@@ -102,8 +102,8 @@ be safe without them.
   customers (30% a month) and would otherwise land on engineering.
 - **Dependencies (lead times):** the bank's API specification and sandbox
   (to request in M1 week 1; needed by 26 Oct); the CPA's October close review (mid-Oct,
-  needs reports stable by 14 Oct); domain purchase and DNS (1 day); Render and
-  Cloudflare accounts on the company card (Kira, 1 day).
+  needs reports stable by 14 Oct); domain purchase and DNS (1 day); AWS (Jakarta
+  region enabled) and Cloudflare accounts on the company card (Kira, 1 day).
 - **Cadence:** deploy to staging on every merge; production releases twice a
   week (Tue/Thu) via manual promote; a Friday demo for Kira and Budi; a
   fortnightly written update to the bank contact; the investor update after
@@ -149,8 +149,8 @@ be safe without them.
 | Weekly active businesses                   | Not measured (no tenant id yet)                                          | ≥ 80% of paying                 | SQL: distinct `business_id` with an entry that week (after M2) |
 | % entries posted without support contact   | Not measured                                                             | ≥ 95%                           | Helpdesk tags joined to entry counts (from M3, hire 2)         |
 | Unbalanced posted entries                  | 0 (enforced by the DB trigger)                                           | 0                               | Nightly SQL check; trigger `ledger_check_entry_balanced`       |
-| p95 ledger-read latency                    | Rehearsal: p99 172 ms (1 year of data); production: none                 | < 300 ms                        | Render metrics + uptime monitor                                |
-| p95 report latency                         | Rehearsal at 1 year of history: p99 3.7 s before rollups, ≤ 103 ms after | < 800 ms                        | Render metrics                                                 |
+| p95 ledger-read latency                    | Rehearsal: p99 172 ms (1 year of data); production: none                 | < 300 ms                        | CloudWatch + uptime monitor                                    |
+| p95 report latency                         | Rehearsal at 1 year of history: p99 3.7 s before rollups, ≤ 103 ms after | < 800 ms                        | CloudWatch metrics                                             |
 | Availability                               | Not measured (not yet live)                                              | ≥ 99.9% / month                 | External uptime monitor on both `/health`                      |
 | Restore time (drill)                       | 17 s local, 1 year of data                                               | < 1 h on production PITR        | `docs/evidence/G9-restore-drill.md`                            |
 | Support tickets / 100 businesses / month   | Not measured                                                             | Baseline in M1, then −20%       | Helpdesk                                                       |

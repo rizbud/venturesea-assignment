@@ -6,16 +6,17 @@
 
 ## Deployed URLs
 
-| Surface       | URL                                                                | `/health` |
-| ------------- | ------------------------------------------------------------------ | --------- |
-| Dashboard     | Not deployed: no Render account/GitHub remote on the build machine | —         |
-| Ledger API    | Not deployed (same reason)                                         | —         |
-| Reporting API | Not deployed (same reason)                                         | —         |
+| Surface       | URL                                                         | `/health` |
+| ------------- | ----------------------------------------------------------- | --------- |
+| Dashboard     | Not deployed: no AWS account or domain on the build machine | —         |
+| Ledger API    | Not deployed (same reason)                                  | —         |
+| Reporting API | Not deployed (same reason)                                  | —         |
 
 The production shape is rehearsed locally with the exact images and rules
 (`deployment/docker-compose.prod.yml`, [G4 evidence](evidence/G4-deploy-rehearsal.md)),
-and the blueprint (`deployment/render.yaml`) deploys it with `git push` once the
-repository is on GitHub. No URL here is invented.
+and the AWS stacks (`infra/aws`, CDK, tested) deploy it with
+`deployment/aws/deploy.sh` once an AWS account and domain exist. No URL here is
+invented.
 
 **Cloudflare / custom domain:** not attempted (no domain or Cloudflare account).
 The origin side is built and tested, and the exact configuration is in
@@ -43,6 +44,13 @@ The origin side is built and tested, and the exact configuration is in
   limit; per-IP rate limit; least-privilege DB role; dependency upgrade.
 - **G6, edge** (`008aa19`): Cloudflare runbook; origin lock (`X-Origin-Secret`).
 - **G7, AI log** (`72da17d`): missed, rejected and reverted entries added honestly.
+- **Rollups** (`2bb68ec`): daily balance rollups maintained by triggers; reports
+  342 req/s at one year of history instead of ~5.
+- **AWS target**: ECS Fargate in Jakarta as CDK code with assertion tests
+  (2 tasks per service, autoscaling 2–6, never below 2 during deploys; RDS
+  Multi-AZ; Cloudflare-only ALB; Secrets Manager); one-command `deploy.sh`; the
+  app reads `PG*` variables, the migration step creates the app role, and the
+  rate limiter can key on `CF-Connecting-IP`.
 - **G8, sub-agents** (`bc49d77`): six agents; three demonstrated; they caught
   a broken CI job and three other gaps (below).
 - **G9, infrastructure** (`eec6a29`, `42cfc2a`): plan, restore drill, capacity
@@ -78,31 +86,34 @@ WHERE status = 'POSTED' RETURNING`), so two concurrent voids cannot both
 
 - **Engine and version:** PostgreSQL 16.
 - **Migrations:** `pnpm --filter @ledgerlab/db migrate:sql` locally; in
-  production, `node dist/migrate.js` from the ledger image as Render's
-  `preDeployCommand`. Ordered idempotent SQL in `packages/db/migrations/`.
+  production, `node dist/migrate.js` from the ledger image as a one-off ECS
+  task before each roll. Ordered idempotent SQL in `packages/db/migrations/`.
 - **Seeding:** `pnpm --filter @ledgerlab/db seed` (idempotent, keyed on
   reference; non-production only).
-- **Why this engine:** managed with tested point-in-time recovery, on the same
-  private network as the APIs, and able to enforce the ledger's invariants
+- **Why this engine:** managed (RDS, Multi-AZ) with point-in-time recovery, in
+  the same VPC as the APIs, and able to enforce the ledger's invariants
   itself (deferred constraint triggers). See [`DATABASE.md`](DATABASE.md) and
   infrastructure ADR-002.
 
 ## Deployment
 
-- **Target:** Render, Singapore (`deployment/render.yaml`).
-- **Reproduce it:** push to GitHub → Render → New → Blueprint; every later
-  deploy is `git push origin main`. Locally:
+- **Target:** AWS ECS Fargate, Jakarta (`ap-southeast-3`), RDS PostgreSQL 16
+  Multi-AZ, behind Cloudflare ([`deployment/aws/README.md`](../deployment/aws/README.md)).
+  Render (`deployment/render.yaml`) remains a working alternative.
+- **Reproduce it:** `DOMAIN=<domain> deployment/aws/deploy.sh` (prerequisites in
+  the AWS runbook). Locally:
   `docker compose -f deployment/docker-compose.prod.yml up -d --build --wait`
   (env vars in [`DEPLOYMENT.md`](DEPLOYMENT.md)).
-- **Scaling:** 2 instances per API (`numInstances: 2`), stateless; DB pool 10 per
-  instance (21 of 100 connections). Rehearsed: stopping a replica under load
-  lost 0 of 300 requests.
-- **Secrets:** Render env vars: `INTERNAL_API_TOKEN` is generated and shared with
-  `fromService`; the owner URL comes from `fromDatabase`; the app role URL and
-  `ORIGIN_SECRET` are `sync: false`. Nothing in git or in images.
-- **Migrations as a deploy step:** yes. `preDeployCommand: node dist/migrate.js`
-  runs as the owner role; a failure aborts the deploy and the old version keeps
-  serving.
+- **Scaling:** at least 2 tasks per service (ledger, reporting, web) across two
+  AZs, autoscaling to 6 on CPU; deploys keep 100% healthy (never below 2) and
+  roll back automatically. Stateless; DB pool 10 per task. Rehearsed: stopping a
+  replica under load lost 0 of 300 requests.
+- **Secrets:** AWS Secrets Manager, all generated there (DB master, app role
+  password, `INTERNAL_API_TOKEN`, `ORIGIN_SECRET`) and injected by ECS as
+  separate secrets. Nothing in git, images or the template.
+- **Migrations as a deploy step:** yes. A one-off ECS task runs
+  `node dist/migrate.js` as the owner role with the new image; a non-zero exit
+  stops the deploy before any service changes.
 
 ## Security
 
@@ -143,23 +154,26 @@ frame-ancestors 'none'`, `x-content-type-options: nosniff`,
 
 - **Document:** [`INFRASTRUCTURE-PLAN.md`](INFRASTRUCTURE-PLAN.md), complete;
   status "Review" until the real deploy exists.
-- **Topology in one sentence:** Cloudflare → Render (Singapore): static
-  dashboard, 2 ledger-api + 2 reporting-api instances, managed Postgres 16 on
-  the private network, secrets from Render's store.
+- **Topology in one sentence:** Cloudflare → ALB (Cloudflare IPs only) in AWS
+  Jakarta → ECS Fargate, 2+ tasks each of web, ledger-api and reporting-api in
+  private subnets → RDS Postgres 16 Multi-AZ in isolated subnets, secrets from
+  Secrets Manager.
 - **RPO / RTO:** 5 min / 1 h (bad deploy: 5 min RTO; region loss: 24 h / 4 h).
 - **Restore drill:** 2026-10-01, 17 s end to end for one year of data (372,001
   entries), fingerprints identical, invariants and role grants intact
-  ([evidence](evidence/G9-restore-drill.md)). The Render PITR drill is step 3 of
+  ([evidence](evidence/G9-restore-drill.md)). The RDS PITR drill is step 4 of
   the go-live checklist.
-- **Cost at 1× / 3× / 10×:** ≈ $100 / $181 / $480 per month.
+- **Cost at 1× / 3× / 10×:** ≈ $283 / $396 / $697 per month (AWS list prices
+  for Jakarta; about $130 of today's figure buys the availability).
 - **First bottleneck (found and fixed):** at one year of history reports fell
   to ~5 req/s because each one scanned every line. Daily balance rollups
   (`0004_balance_rollups.sql`) brought the late-month worst case to 342 req/s,
   p99 95 ms ([evidence](evidence/rollups.md)). At 10×, the next limits are the
   global rollup lock on posting and single-region.
-- **ADRs:** Render over AWS/GCP/Azure; managed Postgres, single region; daily
-  balance rollups maintained by triggers; idempotent SQL migrations as a pre-deploy
-  step; Cloudflare with a shared-secret origin lock.
+- **ADRs:** AWS ECS Fargate in Jakarta (EKS and Render rejected); managed
+  Postgres, single region, Multi-AZ; daily balance rollups maintained by
+  triggers; idempotent SQL migrations as a pre-deploy step; Cloudflare with an
+  IP allow-list and a shared-secret origin lock.
 
 ## Next-phase plan (G10)
 
@@ -168,7 +182,7 @@ frame-ancestors 'none'`, `x-content-type-options: nosniff`,
   with zero unbalanced entries; tenant isolation; 30 days of measured ≥ 99.9%
   before due diligence; payday-fast reports with a year of history.
 - **Prioritisation method and top initiative:** dated commitments first, then
-  RICE. Top: go-live (Render, domain, Cloudflare, monitoring); rollups are done.
+  RICE. Top: go-live (AWS, domain, Cloudflare, monitoring); rollups are done.
 - **Milestones + exit criteria:** M1 by 16 Oct (Cloudflare verification passes,
   PITR drill identical, report p95 < 800 ms at one year of data); M2 by 27 Nov
   (cross-tenant suite fails closed, audit row for 100% of mutations, bank
@@ -215,16 +229,16 @@ Run on 2026-10-01 with `TEST_DATABASE_URL` pointing at Postgres 16
 
 ```
 pnpm format:check   # PASS
-pnpm typecheck      # PASS (6/6)
-pnpm test           # PASS: 99 tests (shared 29, reporting 9, ledger 61 incl. Postgres), 0 skipped
+pnpm typecheck      # PASS (7/7)
+pnpm test           # PASS: 109 tests (shared 30, reporting 9, ledger 63 incl. Postgres, infra-aws 7), 0 skipped
 pnpm build          # PASS
-pnpm ai:verify      # PASS (28 entries)
+pnpm ai:verify      # PASS (29 entries)
 ```
 
 ## What I skipped and why
 
-- **The real Render deploy and Cloudflare:** they need accounts, a GitHub remote
-  and a domain the build machine did not have. Everything up to the account
+- **The real AWS deploy and Cloudflare:** they need an AWS account, a domain
+  and a Cloudflare account the build machine did not have. Everything up to the account
   boundary is built, rehearsed and documented; no URL or screenshot is faked.
 - **Authentication and multi-tenancy:** out of scope for the test, and the
   biggest real gap; planned as M2 with ADRs.
@@ -237,7 +251,7 @@ pnpm ai:verify      # PASS (28 entries)
 
 ## If I had more time
 
-1. Provision Render + Cloudflare and run the production PITR drill (M1).
+1. Deploy to AWS, put Cloudflare in front and run the PITR and failover drills (M1).
 2. Schedule the nightly `ledger_rollup_drift` check and the off-site backup.
 3. Structured JSON logs and alerting per the infrastructure plan.
 4. OIDC + `business_id` with row-level security, then the audit log.
