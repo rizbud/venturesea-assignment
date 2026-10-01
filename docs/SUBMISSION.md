@@ -100,7 +100,7 @@ WHERE status = 'POSTED' RETURNING`), so two concurrent voids cannot both
 - **Target:** AWS ECS Fargate, Jakarta (`ap-southeast-3`), RDS PostgreSQL 16
   Multi-AZ, behind Cloudflare ([`deployment/aws/README.md`](../deployment/aws/README.md)).
   Render (`deployment/render.yaml`) remains a working alternative.
-- **Reproduce it:** push to `main`; after CI passes, the Deploy workflow runs
+- **Reproduce it:** Actions → Deploy → Run workflow on `main`; it runs
   `deployment/aws/deploy.sh` with an OIDC role (one-time setup in the AWS
   runbook). Locally:
   `docker compose -f deployment/docker-compose.prod.yml up -d --build --wait`
@@ -233,7 +233,7 @@ pnpm format:check   # PASS
 pnpm typecheck      # PASS (7/7)
 pnpm test           # PASS: 111 tests (shared 30, reporting 9, ledger 63 incl. Postgres, infra-aws 9), 0 skipped
 pnpm build          # PASS
-pnpm ai:verify      # PASS (30 entries)
+pnpm ai:verify      # PASS (31 entries)
 ```
 
 ## What I skipped and why

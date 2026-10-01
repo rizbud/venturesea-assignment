@@ -31,8 +31,8 @@ Tear down with `docker compose -f deployment/docker-compose.prod.yml down -v`.
 
 ## Deploy to AWS (target)
 
-Every push to `main` that passes CI is deployed by GitHub Actions
-(`.github/workflows/deploy.yml`), which assumes an AWS role through OIDC (no AWS
+Deploys are started by hand in GitHub Actions (**Deploy → Run workflow**,
+`.github/workflows/deploy.yml`); nothing deploys automatically. The workflow assumes an AWS role through OIDC (no AWS
 keys in GitHub) and runs `deployment/aws/deploy.sh`. The script also runs
 locally:
 

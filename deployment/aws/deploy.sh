@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Deploy to AWS ECS Fargate (infra/aws). GitHub Actions runs this on every push
-# to main that passes CI (.github/workflows/deploy.yml). By hand, from the repo
-# root with AWS credentials for the target account (aws sso login):
+# Deploy to AWS ECS Fargate (infra/aws). Started by hand from GitHub Actions
+# (.github/workflows/deploy.yml, Run workflow), or locally from the repo root
+# with AWS credentials for the target account (aws sso login):
 #
 #   DOMAIN=ledgerlab.example.com AWS_REGION=ap-southeast-3 deployment/aws/deploy.sh
 #

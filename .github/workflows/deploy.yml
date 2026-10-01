@@ -1,15 +1,9 @@
 name: Deploy
 
-# Deploys main to AWS (deployment/aws/deploy.sh) after CI passes on it, or on
-# demand. AWS access is through OIDC: no AWS keys are stored in GitHub. Until the
-# repository variables AWS_DEPLOY_ROLE_ARN and DOMAIN are set
-# (deployment/aws/README.md), the job is skipped. They are repository variables,
-# not environment ones, because the job-level `if` cannot see the latter.
+# Deploys main to AWS (deployment/aws/deploy.sh). Manual only: Actions → Deploy
+# → Run workflow. AWS access is through OIDC: no AWS keys are stored in GitHub.
+# Needs the AWS_DEPLOY_ROLE_ARN and DOMAIN variables (deployment/aws/README.md).
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches: [main]
   workflow_dispatch:
 
 # One deploy at a time; a newer one waits instead of interrupting a roll.
@@ -24,18 +18,12 @@ permissions:
 jobs:
   deploy:
     name: deploy to AWS
-    if: >-
-      vars.AWS_DEPLOY_ROLE_ARN != '' &&
-      (github.event_name == 'workflow_dispatch' ||
-       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
-        with:
-          # The commit CI tested, not whatever main points at now.
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4

@@ -273,16 +273,16 @@ data into less-protected places.
 
 ## 9. CI/CD and release
 
-| Stage          | Trigger             | What runs                                                                                                              | Gate      |
-| -------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------- | --------- |
-| PR / push      | push, pull request  | `verify`: ai:verify, typecheck, migrate test DB, tests (incl. Postgres contract), challenge suite, build, format check | Required  |
-| Images         | push, pull request  | `images`: build all three images from the lockfile, migrate from the runtime image twice, boot the API on Postgres     | Required  |
-| Deploy staging | merge to `main`     | `deployment/aws/deploy.sh` against the staging account: build, push, migrate task, rolling deploy behind health checks | Automatic |
-| Deploy prod    | approval            | Same script and same image tag against production, after staging passed                                                | Manual    |
-| Rollback       | on-call / automatic | Circuit breaker rolls back a failed roll; otherwise `cdk deploy -c imageTag=<previous sha>` (30 images kept in ECR)    | —         |
+| Stage          | Trigger             | What runs                                                                                                              | Gate     |
+| -------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------- | -------- |
+| PR / push      | push, pull request  | `verify`: ai:verify, typecheck, migrate test DB, tests (incl. Postgres contract), challenge suite, build, format check | Required |
+| Images         | push, pull request  | `images`: build all three images from the lockfile, migrate from the runtime image twice, boot the API on Postgres     | Required |
+| Deploy staging | manual dispatch     | `deployment/aws/deploy.sh` against the staging account: build, push, migrate task, rolling deploy behind health checks | Manual   |
+| Deploy prod    | approval            | Same script and same image tag against production, after staging passed                                                | Manual   |
+| Rollback       | on-call / automatic | Circuit breaker rolls back a failed roll; otherwise `cdk deploy -c imageTag=<previous sha>` (30 images kept in ECR)    | —        |
 
-Deploys run in GitHub Actions (`.github/workflows/deploy.yml`) after CI passes
-on `main`, assuming an IAM role through OIDC that only this repository's
+Deploys are started by hand in GitHub Actions (`.github/workflows/deploy.yml`)
+from `main`, assuming an IAM role through OIDC that only this repository's
 `production` environment can use (`LedgerLabGithub` stack); no AWS keys are
 stored in GitHub. Today there is one environment; staging is a second account
 with its own role and a second GitHub environment.
