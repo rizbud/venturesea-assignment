@@ -37,3 +37,7 @@ coverage/
 .terraform/
 *.tfstate
 *.tfstate.*
+
+# turborepo cache and task logs (machine-local; a committed cache can replay
+# build outputs that were never built from this source)
+.turbo/
