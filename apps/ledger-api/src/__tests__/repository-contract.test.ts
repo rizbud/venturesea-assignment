@@ -120,6 +120,21 @@ describe.each(adapters)("LedgerRepository contract ($name)", (adapter) => {
     expect((rejected as PromiseRejectedResult).reason).toBeInstanceOf(ConflictError);
   });
 
+  it("stores amounts beyond the 32-bit range exactly", async () => {
+    const rp5bn = 5_000_000_000; // IDR has no minor unit, so this is Rp 5bn
+    const entry = await sale(rp5bn);
+    const stored = await repo.getJournalEntry(entry.id);
+    expect(stored?.lines.map((l) => l.amountMinor)).toEqual([rp5bn, -rp5bn]);
+    expect((await repo.listPostings()).map((p) => p.amountMinor)).toEqual([rp5bn, -rp5bn]);
+  });
+
+  it("toggles an account's active flag and persists it", async () => {
+    expect((await repo.setAccountActive(revenue.id, false))?.isActive).toBe(false);
+    expect((await repo.getAccountById(revenue.id))?.isActive).toBe(false);
+    expect((await repo.setAccountActive(revenue.id, true))?.isActive).toBe(true);
+    expect(await repo.setAccountActive("acct_missing", false)).toBeUndefined();
+  });
+
   it("returns undefined when voiding an unknown entry", async () => {
     expect(await repo.voidJournalEntry("je_missing")).toBeUndefined();
   });

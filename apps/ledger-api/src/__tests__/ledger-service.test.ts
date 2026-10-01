@@ -90,18 +90,20 @@ describe("LedgerService account and period rules", () => {
     };
   }
 
-  it("refuses lines that reference an inactive account", async () => {
-    // No deactivate endpoint exists yet; simulate a row with is_active = 0.
-    class InactiveRevenueRepository extends InMemoryLedgerRepository {
-      override async getAccountById(id: string) {
-        const account = await super.getAccountById(id);
-        return account?.code === "4000" ? { ...account, isActive: false } : account;
-      }
-    }
-    const service = new LedgerService(new InactiveRevenueRepository({ seed: true }));
+  it("refuses lines on an inactive account and accepts them again once reactivated", async () => {
+    const service = buildService();
     const { cash, revenue } = await accountsOf(service);
+    await service.setAccountActive(revenue.id, false);
     await expect(service.createJournalEntry(sale(cash.id, revenue.id, "2026-09-01"))).rejects.toThrow(
       /inactive/,
+    );
+    await service.setAccountActive(revenue.id, true);
+    expect((await service.createJournalEntry(sale(cash.id, revenue.id, "2026-09-01"))).status).toBe("POSTED");
+  });
+
+  it("throws NotFound when deactivating an unknown account", async () => {
+    await expect(buildService().setAccountActive("acct_missing", false)).rejects.toBeInstanceOf(
+      NotFoundError,
     );
   });
 

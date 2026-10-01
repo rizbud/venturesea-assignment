@@ -1,4 +1,4 @@
-import { integer, pgEnum, pgTable, text, timestamp, varchar, index } from "drizzle-orm/pg-core";
+import { bigint, integer, pgEnum, pgTable, text, timestamp, varchar, index } from "drizzle-orm/pg-core";
 
 export const accountTypeEnum = pgEnum("account_type", ["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"]);
 
@@ -42,7 +42,8 @@ export const journalLines = pgTable(
       .notNull()
       .references(() => accounts.id, { onDelete: "restrict" }),
     /** Signed minor units: > 0 debit, < 0 credit. */
-    amountMinor: integer("amount_minor").notNull(),
+    /** BIGINT read as a JS number; inputs are capped at Number.MAX_SAFE_INTEGER. */
+    amountMinor: bigint("amount_minor", { mode: "number" }).notNull(),
     position: integer("position").notNull().default(0),
     memo: varchar("memo", { length: 200 }),
   },

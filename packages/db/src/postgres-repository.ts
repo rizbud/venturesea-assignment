@@ -80,6 +80,15 @@ export class PostgresLedgerRepository implements LedgerRepository {
     return toAccount(row);
   }
 
+  async setAccountActive(id: string, isActive: boolean): Promise<Account | undefined> {
+    const [row] = await this.db
+      .update(accounts)
+      .set({ isActive: isActive ? 1 : 0 })
+      .where(eq(accounts.id, id))
+      .returning();
+    return row ? toAccount(row) : undefined;
+  }
+
   private async linesFor(entryId: string): Promise<JournalLine[]> {
     const rows = await this.db
       .select({

@@ -33,7 +33,7 @@ persists and reads back; it must not silently "fix" an unbalanced entry.
 
 - Schema: `packages/db/src/schema.ts` (Drizzle, `pg-core`).
 - Adapter: `packages/db/src/postgres-repository.ts`.
-- Migration SQL: `packages/db/migrations/0000_init.sql`.
+- Migration SQL: `packages/db/migrations/*.sql`, applied in filename order.
 
 ```bash
 cp .env.example .env
@@ -92,7 +92,10 @@ journal_lines(id, entry_id → journal_entries, account_id → accounts,
               amount_minor, position, memo)
 ```
 
-**Money is `amount_minor`, a signed integer**: `> 0` debit, `< 0` credit.
+**Money is `amount_minor`, a signed `BIGINT`**: `> 0` debit, `< 0` credit.
+`INTEGER` would cap one line at about Rp 2.1bn (IDR has no minor unit), so
+`0001_amount_minor_bigint.sql` widens it; API input is capped at
+`Number.MAX_SAFE_INTEGER` so values round-trip through JavaScript exactly.
 No `REAL`/`FLOAT`/`DOUBLE` column may ever hold money.
 
 ## Migrations
@@ -101,7 +104,9 @@ No `REAL`/`FLOAT`/`DOUBLE` column may ever hold money.
   one-off job, with the DB user that owns the schema.
 - The app's runtime user should be least-privilege (SELECT/INSERT/UPDATE on the
   three tables; no DDL outside the migration step).
-- Keep migrations forward-only and idempotent where possible (`CREATE TABLE IF NOT EXISTS`).
+- Keep migrations forward-only and idempotent (`CREATE TABLE IF NOT EXISTS`,
+  guarded `ALTER`s): `migrate:sql` has no applied-migrations table and re-runs
+  every file on each deploy.
 
 ## Seeding
 

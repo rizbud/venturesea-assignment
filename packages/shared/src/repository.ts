@@ -43,6 +43,8 @@ export interface LedgerRepository {
   getAccountById(id: string): Promise<Account | undefined>;
   getAccountByCode(code: string): Promise<Account | undefined>;
   createAccount(input: CreateAccountInput): Promise<Account>;
+  /** Returns undefined when the account does not exist. */
+  setAccountActive(id: string, isActive: boolean): Promise<Account | undefined>;
 
   listJournalEntries(query: ListJournalEntriesQuery): Promise<Paginated<JournalEntry>>;
   getJournalEntry(id: string): Promise<JournalEntry | undefined>;

@@ -78,6 +78,16 @@ export class LedgerService {
     return this.repo.createAccount(input);
   }
 
+  /**
+   * Inactive accounts reject new lines; existing postings still count in every
+   * report, so deactivating never changes historical figures.
+   */
+  async setAccountActive(id: string, isActive: boolean): Promise<Account> {
+    const account = await this.repo.setAccountActive(id, isActive);
+    if (!account) throw new NotFoundError(`Account ${id} not found`);
+    return account;
+  }
+
   listJournalEntries(params: ListEntriesParams): Promise<Paginated<JournalEntry>> {
     return this.repo.listJournalEntries(params);
   }

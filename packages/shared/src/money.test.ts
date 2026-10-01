@@ -77,6 +77,11 @@ describe("balancing helpers", () => {
     expect(() => sumMinor([1.5])).toThrow(MoneyError);
   });
 
+  it("rejects amounts and totals beyond the safe integer range", () => {
+    expect(() => sumMinor([2 ** 53])).toThrow(MoneyError);
+    expect(() => sumMinor([Number.MAX_SAFE_INTEGER, 1])).toThrow(MoneyError);
+  });
+
   it("detects a balanced set", () => {
     expect(isBalanced([100, -100])).toBe(true);
     expect(isBalanced([100, -99])).toBe(false);

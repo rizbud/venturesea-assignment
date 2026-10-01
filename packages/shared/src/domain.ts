@@ -81,7 +81,7 @@ export const createJournalEntrySchema = z.object({
     .array(
       z.object({
         accountId: z.string().min(1),
-        amountMinor: z.number().int(),
+        amountMinor: z.number().int().safe(),
         memo: z.string().max(200).optional(),
       }),
     )
@@ -96,6 +96,10 @@ export const createAccountSchema = z.object({
   currency: z.string().length(3).default("USD"),
 });
 export type CreateAccountInput = z.infer<typeof createAccountSchema>;
+
+/** Shape accepted by PATCH /api/accounts/:id. */
+export const updateAccountSchema = z.object({ isActive: z.boolean() }).strict();
+export type UpdateAccountInput = z.infer<typeof updateAccountSchema>;
 
 export interface TrialBalanceRow {
   accountId: string;

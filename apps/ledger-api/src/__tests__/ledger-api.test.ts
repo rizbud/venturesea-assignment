@@ -69,6 +69,36 @@ describe("ledger-api", () => {
     expect((await json<ErrorBody>(res)).error.code).toBe("VALIDATION_ERROR");
   });
 
+  it("deactivates an account via PATCH and then refuses lines on it", async () => {
+    const accounts = await listAccounts(app);
+    const cash = accounts.find((a) => a.code === "1000")!;
+    const revenue = accounts.find((a) => a.code === "4000")!;
+    const patch = (id: string, body: unknown) =>
+      app.request(`/api/accounts/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+    const res = await patch(revenue.id, { isActive: false });
+    expect(res.status).toBe(200);
+    expect((await json<{ data: Account }>(res)).data.isActive).toBe(false);
+
+    const entry = await postJson(app, "/api/journal-entries", {
+      date: "2026-01-15",
+      memo: "Sale on a closed account",
+      lines: [
+        { accountId: cash.id, amountMinor: 100 },
+        { accountId: revenue.id, amountMinor: -100 },
+      ],
+    });
+    expect(entry.status).toBe(400);
+
+    expect((await patch("acct_missing", { isActive: false })).status).toBe(404);
+    expect((await patch(revenue.id, { isActive: "no" })).status).toBe(400);
+    expect((await patch(revenue.id, { name: "Renamed" })).status).toBe(400);
+  });
+
   it("posts a balanced journal entry", async () => {
     const accounts = await listAccounts(app);
     const cash = accounts.find((a) => a.code === "1000")!;

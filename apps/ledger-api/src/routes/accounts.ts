@@ -1,4 +1,4 @@
-import { createAccountSchema } from "@ledgerlab/shared";
+import { createAccountSchema, updateAccountSchema } from "@ledgerlab/shared";
 import { Hono } from "hono";
 import type { LedgerService } from "../services/ledger-service";
 import { parseBody } from "./validate";
@@ -20,6 +20,12 @@ export function accountRoutes(service: LedgerService): Hono {
     const input = await parseBody(c, createAccountSchema);
     const account = await service.createAccount(input);
     return c.json({ data: account }, 201);
+  });
+
+  app.patch("/:id", async (c) => {
+    const { isActive } = await parseBody(c, updateAccountSchema);
+    const account = await service.setAccountActive(c.req.param("id"), isActive);
+    return c.json({ data: account });
   });
 
   return app;

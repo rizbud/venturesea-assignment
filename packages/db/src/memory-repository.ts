@@ -121,6 +121,14 @@ export class InMemoryLedgerRepository implements LedgerRepository {
     return account;
   }
 
+  async setAccountActive(id: string, isActive: boolean): Promise<Account | undefined> {
+    const account = this.accounts.get(id);
+    if (!account) return undefined;
+    const updated: Account = { ...account, isActive };
+    this.accounts.set(id, updated);
+    return updated;
+  }
+
   async listJournalEntries(query: ListJournalEntriesQuery): Promise<Paginated<JournalEntry>> {
     const all = [...this.entries.values()]
       .filter((entry) => !query.status || entry.status === query.status)

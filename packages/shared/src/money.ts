@@ -86,8 +86,10 @@ export function minorUnitScale(currency: string): number {
 /** Sum signed minor units safely (they are just integers). */
 export function sumMinor(values: readonly number[]): number {
   return values.reduce((total, value) => {
-    if (!Number.isInteger(value)) throw new MoneyError(`sumMinor expects integers, got ${value}`);
-    return total + value;
+    if (!Number.isSafeInteger(value)) throw new MoneyError(`sumMinor expects safe integers, got ${value}`);
+    const next = total + value;
+    if (!Number.isSafeInteger(next)) throw new MoneyError("sumMinor overflowed the safe integer range");
+    return next;
   }, 0);
 }
 
