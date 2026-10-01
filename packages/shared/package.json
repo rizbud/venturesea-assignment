@@ -10,6 +10,11 @@
       "types": "./src/index.ts",
       "import": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./http": {
+      "types": "./src/http.ts",
+      "import": "./src/http.ts",
+      "default": "./src/http.ts"
     }
   },
   "scripts": {
@@ -18,7 +23,8 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
-    "zod": "^3.24.1"
+    "zod": "^3.24.1",
+    "hono": "^4.6.16"
   },
   "devDependencies": {
     "@types/node": "^22.13.1",

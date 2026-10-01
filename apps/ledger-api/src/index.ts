@@ -2,13 +2,14 @@ import { serve } from "@hono/node-server";
 import { createLedgerApp } from "./app";
 import { LedgerService } from "./services/ledger-service";
 import { resolveLedgerRepository } from "./repositories/resolve";
+import { corsOriginsFromEnv, internalTokenFromEnv } from "@ledgerlab/shared/http";
 
 const port = Number(process.env.LEDGER_API_PORT ?? process.env.PORT ?? 4001);
 const hostname = process.env.LEDGER_API_HOST ?? "0.0.0.0";
-const corsOrigins = (process.env.CORS_ORIGINS ?? "*")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
+// Both throw in production when unset or unsafe, so a misconfigured deploy fails its health check.
+const corsOrigins = corsOriginsFromEnv(process.env);
+const internalToken = internalTokenFromEnv(process.env);
+const rateLimitPerMinute = Number(process.env.RATE_LIMIT_PER_MINUTE ?? 300);
 
 const closedThrough = process.env.LEDGER_CLOSED_THROUGH?.trim() || undefined;
 if (closedThrough && !/^\d{4}-\d{2}-\d{2}$/.test(closedThrough)) {
@@ -20,7 +21,8 @@ const service = new LedgerService(repository, { closedThrough });
 const app = createLedgerApp({
   service,
   corsOrigins,
-  internalToken: process.env.INTERNAL_API_TOKEN,
+  internalToken,
+  rateLimitPerMinute,
 });
 
 const server = serve({ fetch: app.fetch, port, hostname }, (info) => {

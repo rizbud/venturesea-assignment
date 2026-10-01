@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { AppError } from "@ledgerlab/shared";
+import { apiSecurityHeaders, rateLimit } from "@ledgerlab/shared/http";
 import type { ReportingService } from "./services/reporting-service";
 import { healthRoutes } from "./routes/health";
 import { reportRoutes } from "./routes/reports";
@@ -10,12 +11,19 @@ import { reportRoutes } from "./routes/reports";
 export interface CreateAppOptions {
   service: ReportingService;
   corsOrigins?: string[];
+  /** Requests per minute per client IP on /api/*. Reports are heavier than ledger reads. */
+  rateLimitPerMinute?: number;
 }
 
-export function createReportingApp({ service, corsOrigins = ["*"] }: CreateAppOptions): Hono {
+export function createReportingApp({
+  service,
+  corsOrigins = ["*"],
+  rateLimitPerMinute = 120,
+}: CreateAppOptions): Hono {
   const app = new Hono();
 
   if (process.env.NODE_ENV !== "test") app.use("*", logger());
+  app.use("*", apiSecurityHeaders());
   app.use(
     "*",
     cors({
@@ -25,6 +33,8 @@ export function createReportingApp({ service, corsOrigins = ["*"] }: CreateAppOp
       allowHeaders: ["Content-Type", "Authorization"],
     }),
   );
+
+  app.use("/api/*", rateLimit({ max: rateLimitPerMinute }));
 
   app.route("/", healthRoutes("reporting-api"));
   app.route("/api/reports", reportRoutes(service));

@@ -2,7 +2,7 @@
 # the Render deploy (render.yaml), so the deploy can be rehearsed and verified
 # without a cloud account.
 #
-#   export INTERNAL_API_TOKEN=$(openssl rand -hex 32) POSTGRES_PASSWORD=$(openssl rand -hex 16)
+#   export INTERNAL_API_TOKEN=$(openssl rand -hex 32) POSTGRES_PASSWORD=$(openssl rand -hex 16) APP_DB_PASSWORD=$(openssl rand -hex 16)
 #   docker compose -f deployment/docker-compose.prod.yml up -d --build --wait
 #
 # Dashboard http://localhost:8080 · ledger http://localhost:4001 · reporting http://localhost:4002
@@ -25,8 +25,10 @@ services:
       POSTGRES_USER: ledgerlab
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
       POSTGRES_DB: ledgerlab
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD}
     volumes:
       - db-data:/var/lib/postgresql/data
+      - ./db-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ledgerlab -d ledgerlab"]
       interval: 3s
@@ -46,7 +48,8 @@ services:
     image: ledgerlab/ledger-api:local
     environment:
       <<: *api-env
-      DATABASE_URL: postgres://ledgerlab:${POSTGRES_PASSWORD}@db:5432/ledgerlab
+      # Runtime connects as the least-privilege role; only the migrate job uses the owner.
+      DATABASE_URL: postgres://ledgerlab_app:${APP_DB_PASSWORD}@db:5432/ledgerlab
       DATABASE_POOL_MAX: 10
     deploy:
       replicas: 2

@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { AppError, errorResponseSchema } from "@ledgerlab/shared";
+import { apiSecurityHeaders, limitBody, rateLimit } from "@ledgerlab/shared/http";
 import type { LedgerService } from "./services/ledger-service";
 import { accountRoutes } from "./routes/accounts";
 import { healthRoutes } from "./routes/health";
@@ -14,14 +15,22 @@ export interface CreateAppOptions {
   service: LedgerService;
   /** Browser origins allowed to call this API. Use ["*"] for local dev only. */
   corsOrigins?: string[];
-  /** Optional shared secret guarding /api/internal/*. */
+  /** Shared secret guarding /api/internal/* (required in production; see index.ts). */
   internalToken?: string;
+  /** Requests per minute per client IP on public /api/* routes. */
+  rateLimitPerMinute?: number;
 }
 
-export function createLedgerApp({ service, corsOrigins = ["*"], internalToken }: CreateAppOptions): Hono {
+export function createLedgerApp({
+  service,
+  corsOrigins = ["*"],
+  internalToken,
+  rateLimitPerMinute = 300,
+}: CreateAppOptions): Hono {
   const app = new Hono();
 
   if (process.env.NODE_ENV !== "test") app.use("*", logger());
+  app.use("*", apiSecurityHeaders());
   app.use(
     "*",
     cors({
@@ -31,6 +40,12 @@ export function createLedgerApp({ service, corsOrigins = ["*"], internalToken }:
       allowHeaders: ["Content-Type", "Authorization"],
     }),
   );
+
+  app.use("/api/*", limitBody());
+  // Internal calls come from the reporting service's few IPs and are token-guarded,
+  // so only browser-facing routes are rate limited.
+  const limiter = rateLimit({ max: rateLimitPerMinute });
+  app.use("/api/*", (c, next) => (c.req.path.startsWith("/api/internal/") ? next() : limiter(c, next)));
 
   app.route(
     "/",

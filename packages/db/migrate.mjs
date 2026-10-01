@@ -16,9 +16,12 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
 
-const url = process.env.DATABASE_URL;
+// Migrations run as the schema owner; the app runs as the least-privilege
+// ledgerlab_app role (0003_app_role.sql). MIGRATION_DATABASE_URL carries the
+// owner's credentials where the two differ.
+const url = process.env.MIGRATION_DATABASE_URL || process.env.DATABASE_URL;
 if (!url) {
-  console.error("DATABASE_URL is required to run migrations");
+  console.error("MIGRATION_DATABASE_URL or DATABASE_URL is required to run migrations");
   process.exit(1);
 }
 

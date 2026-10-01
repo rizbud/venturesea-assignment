@@ -65,7 +65,9 @@ Seed demo data only on a non-production environment
 | Variable                 | Service       | Required | Notes                                              |
 | ------------------------ | ------------- | -------- | -------------------------------------------------- |
 | `NODE_ENV`               | both APIs     | prod     | `production` makes missing secrets fatal           |
-| `DATABASE_URL`           | ledger-api    | prod     | from the Render database; startup fails without it |
+| `DATABASE_URL`           | ledger-api    | prod     | `ledgerlab_app` role URL; startup fails without it |
+| `MIGRATION_DATABASE_URL` | ledger-api    | prod     | owner URL, read only by `dist/migrate.js`          |
+| `RATE_LIMIT_PER_MINUTE`  | both APIs     | no       | per IP per instance; ledger 300, reporting 120     |
 | `DATABASE_POOL_MAX`      | ledger-api    | no       | default `10` per instance (see DATABASE.md)        |
 | `LEDGER_API_PORT`        | ledger-api    | no       | default `$PORT`, then `4001`                       |
 | `REPORTING_API_PORT`     | reporting-api | no       | default `$PORT`, then `4002`                       |

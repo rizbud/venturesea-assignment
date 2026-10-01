@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { isoDateSchema } from "@ledgerlab/shared";
+import { tokensMatch } from "@ledgerlab/shared/http";
 import type { LedgerService } from "../services/ledger-service";
 import { parseQuery } from "./validate";
 
@@ -8,7 +9,8 @@ const rangeSchema = z.object({ from: isoDateSchema.optional(), to: isoDateSchema
 
 /**
  * Service-to-service endpoints. Not intended for the browser.
- * If INTERNAL_API_TOKEN is set, callers must send `Authorization: Bearer <token>`.
+ * Callers must send `Authorization: Bearer <INTERNAL_API_TOKEN>`. The token is
+ * required in production (startup fails without it); only local dev runs open.
  */
 export function internalRoutes(service: LedgerService, internalToken?: string): Hono {
   const app = new Hono();
@@ -16,7 +18,7 @@ export function internalRoutes(service: LedgerService, internalToken?: string): 
   app.use("*", async (c, next) => {
     if (!internalToken) return next();
     const header = c.req.header("authorization");
-    if (header !== `Bearer ${internalToken}`) {
+    if (!header || !tokensMatch(header, `Bearer ${internalToken}`)) {
       return c.json({ error: { code: "UNAUTHORIZED", message: "Invalid internal token" } }, 401);
     }
     return next();

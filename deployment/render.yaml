@@ -41,10 +41,16 @@ services:
         value: 4001
       - key: DATABASE_POOL_MAX
         value: 10 # 2 instances x 10 + migration job stays far below the plan's limit
-      - key: DATABASE_URL
+      # Owner credentials, used only by the preDeployCommand migration.
+      - key: MIGRATION_DATABASE_URL
         fromDatabase:
           name: ledgerlab-db
           property: connectionString
+      # Runtime credentials for the least-privilege ledgerlab_app role. Create the role
+      # once (docs/SECURITY.md, "Database") and paste its URL here; until then the
+      # service refuses to start rather than run as the owner silently.
+      - key: DATABASE_URL
+        sync: false
       - key: CORS_ORIGINS
         sync: false # set to your dashboard origin, e.g. https://ledgerlab.example.com
       - key: INTERNAL_API_TOKEN

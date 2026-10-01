@@ -272,3 +272,62 @@ describe.skipIf(!pg)("Postgres enforces the invariants itself (bypassing the app
     expect(count).toBe(first.entries);
   });
 });
+
+describe.skipIf(!pg)("Postgres least-privilege runtime role (0003_app_role.sql)", () => {
+  // Disposable test database only: the role password is a throwaway test value.
+  const appUrl = () => {
+    const url = new URL(pgUrl!);
+    url.username = "ledgerlab_app";
+    url.password = "test-only-not-a-secret";
+    return url.toString();
+  };
+
+  it("can run the app's workload but cannot truncate, delete or change the schema", async () => {
+    await resetPg();
+    await pg!.sql.unsafe(`DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ledgerlab_app') THEN
+        CREATE ROLE ledgerlab_app LOGIN PASSWORD 'test-only-not-a-secret';
+      END IF; END $$;`);
+    const { readFile } = await import("node:fs/promises");
+    const grants = await readFile(
+      new URL("../../../../packages/db/migrations/0003_app_role.sql", import.meta.url),
+      "utf8",
+    );
+    await pg!.sql.unsafe(grants);
+
+    const app = createDatabase(appUrl(), { max: 1 });
+    try {
+      const repo = new PostgresLedgerRepository(app.db);
+      const cash = await repo.createAccount({ code: "1000", name: "Cash", type: "ASSET", currency: "USD" });
+      const revenue = await repo.createAccount({
+        code: "4000",
+        name: "Revenue",
+        type: "REVENUE",
+        currency: "USD",
+      });
+      const entry = await repo.createJournalEntry({
+        date: "2026-03-01",
+        memo: "Sale",
+        lines: [
+          { accountId: cash.id, amountMinor: 100 },
+          { accountId: revenue.id, amountMinor: -100 },
+        ],
+      });
+      expect((await repo.voidJournalEntry(entry.id))?.status).toBe("VOID");
+      expect((await repo.setAccountActive(revenue.id, false))?.isActive).toBe(false);
+      expect((await repo.accountTotals({})).entryCount).toBe(0);
+
+      await expect(app.sql`TRUNCATE journal_lines, journal_entries, accounts CASCADE`).rejects.toThrow(
+        /permission denied/,
+      );
+      await expect(app.sql`DELETE FROM accounts`).rejects.toThrow(/permission denied/);
+      await expect(app.sql`UPDATE accounts SET name = 'renamed'`).rejects.toThrow(/permission denied/);
+      await expect(app.sql`CREATE TABLE sneaky (id int)`).rejects.toThrow(/permission denied/);
+      await expect(app.sql`DROP TRIGGER journal_lines_append_only ON journal_lines`).rejects.toThrow(
+        /must be owner/,
+      );
+    } finally {
+      await app.close();
+    }
+  });
+});

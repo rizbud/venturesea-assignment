@@ -224,3 +224,70 @@ describe("ledger-api storage and input guards", () => {
     expect(() => resolveLedgerRepository({ NODE_ENV: "production" })).toThrow(/DATABASE_URL is required/);
   });
 });
+
+describe("ledger-api HTTP hardening", () => {
+  const TOKEN = "s".repeat(40);
+  const hardened = (rateLimitPerMinute = 300) =>
+    createLedgerApp({
+      service: new LedgerService(new InMemoryLedgerRepository({ seed: true })),
+      corsOrigins: ["https://app.example"],
+      internalToken: TOKEN,
+      rateLimitPerMinute,
+    });
+
+  it("sends security headers on API responses", async () => {
+    const res = await hardened().request("/api/accounts");
+    expect(res.headers.get("strict-transport-security")).toContain("max-age=31536000");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("x-frame-options")).toBe("DENY");
+    expect(res.headers.get("content-security-policy")).toContain("default-src 'none'");
+  });
+
+  it("does not echo a foreign origin in CORS headers", async () => {
+    const res = await hardened().request("/api/accounts", { headers: { origin: "https://evil.example" } });
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
+    const ok = await hardened().request("/api/accounts", { headers: { origin: "https://app.example" } });
+    expect(ok.headers.get("access-control-allow-origin")).toBe("https://app.example");
+  });
+
+  it("guards /api/internal with the bearer token", async () => {
+    const app = hardened();
+    expect((await app.request("/api/internal/account-totals")).status).toBe(401);
+    const wrong = { headers: { authorization: "Bearer nope" } };
+    expect((await app.request("/api/internal/account-totals", wrong)).status).toBe(401);
+    const right = { headers: { authorization: `Bearer ${TOKEN}` } };
+    expect((await app.request("/api/internal/account-totals", right)).status).toBe(200);
+  });
+
+  it("rejects oversized bodies with 413", async () => {
+    const res = await hardened().request("/api/accounts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code: "6100", name: "x".repeat(70_000), type: "EXPENSE" }),
+    });
+    expect(res.status).toBe(413);
+  });
+
+  it("rate limits public routes but not token-guarded internal calls", async () => {
+    const app = hardened(2);
+    expect((await app.request("/api/accounts")).status).toBe(200);
+    expect((await app.request("/api/accounts")).status).toBe(200);
+    expect((await app.request("/api/accounts")).status).toBe(429);
+    const right = { headers: { authorization: `Bearer ${TOKEN}` } };
+    expect((await app.request("/api/internal/account-totals", right)).status).toBe(200);
+    expect((await app.request("/health")).status).toBe(200);
+  });
+
+  it("never leaks internals in a 500", async () => {
+    class Exploding extends InMemoryLedgerRepository {
+      override async listAccounts(): Promise<never> {
+        throw new Error("connection to 10.0.0.5:5432 refused, password=hunter2");
+      }
+    }
+    const app = createLedgerApp({ service: new LedgerService(new Exploding()) });
+    const res = await app.request("/api/accounts");
+    expect(res.status).toBe(500);
+    const text = await res.text();
+    expect(text).not.toMatch(/hunter2|10\.0\.0\.5|at .*\.ts/);
+  });
+});
