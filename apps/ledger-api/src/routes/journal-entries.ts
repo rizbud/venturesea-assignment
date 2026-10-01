@@ -4,16 +4,18 @@ import { Hono } from "hono";
 import type { LedgerService } from "../services/ledger-service";
 import { parseBody, parseQuery } from "./validate";
 
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD");
 const listQuerySchema = paginationSchema.extend({
   status: z.enum(ENTRY_STATUSES).optional(),
+  from: isoDate.optional(),
+  to: isoDate.optional(),
 });
 
 export function journalEntryRoutes(service: LedgerService): Hono {
   const app = new Hono();
 
   app.get("/", async (c) => {
-    const { page, pageSize, status } = parseQuery(c, listQuerySchema);
-    const result = await service.listJournalEntries({ page, pageSize, status });
+    const result = await service.listJournalEntries(parseQuery(c, listQuerySchema));
     return c.json(result);
   });
 

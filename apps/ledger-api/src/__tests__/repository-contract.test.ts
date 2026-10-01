@@ -135,6 +135,29 @@ describe.each(adapters)("LedgerRepository contract ($name)", (adapter) => {
     expect(await repo.setAccountActive("acct_missing", false)).toBeUndefined();
   });
 
+  it("filters the entry list by inclusive date range and status", async () => {
+    await sale(100, "2026-03-01");
+    const mid = await sale(200, "2026-03-15");
+    await sale(300, "2026-03-31");
+    const range = await repo.listJournalEntries({
+      page: 1,
+      pageSize: 50,
+      from: "2026-03-15",
+      to: "2026-03-31",
+    });
+    expect(range.data.map((e) => e.date)).toEqual(["2026-03-31", "2026-03-15"]);
+    expect(range.total).toBe(2);
+
+    await repo.voidJournalEntry(mid.id);
+    const posted = await repo.listJournalEntries({
+      page: 1,
+      pageSize: 50,
+      status: "POSTED",
+      from: "2026-03-15",
+    });
+    expect(posted.data.map((e) => e.date)).toEqual(["2026-03-31"]);
+  });
+
   it("returns undefined when voiding an unknown entry", async () => {
     expect(await repo.voidJournalEntry("je_missing")).toBeUndefined();
   });

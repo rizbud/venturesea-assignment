@@ -4,7 +4,9 @@ import { cn } from "./cn";
 const CONTROL =
   "w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-xs " +
   "placeholder:text-zinc-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 " +
-  "disabled:cursor-not-allowed disabled:bg-zinc-50";
+  "disabled:cursor-not-allowed disabled:bg-zinc-50 " +
+  // Variants sort after base utilities, so these reliably override the zinc/indigo colours.
+  "aria-invalid:border-red-500 aria-invalid:focus:border-red-500 aria-invalid:focus:ring-red-100";
 
 export interface FieldProps {
   label: string;

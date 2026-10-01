@@ -2,9 +2,9 @@ import type {
   Account,
   CreateAccountInput,
   CreateJournalEntryInput,
-  EntryStatus,
   JournalEntry,
   LedgerRepository,
+  ListJournalEntriesQuery,
   Paginated,
   PostingRow,
   TrialBalance,
@@ -19,11 +19,7 @@ import {
   sumMinor,
 } from "@ledgerlab/shared";
 
-export interface ListEntriesParams {
-  page: number;
-  pageSize: number;
-  status?: EntryStatus;
-}
+export type ListEntriesParams = ListJournalEntriesQuery;
 
 /**
  * Application layer for the ledger. Owns the business rules:

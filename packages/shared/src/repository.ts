@@ -29,6 +29,9 @@ export interface ListJournalEntriesQuery {
   page: number;
   pageSize: number;
   status?: EntryStatus;
+  /** Inclusive YYYY-MM-DD bounds on the entry date. */
+  from?: string;
+  to?: string;
 }
 
 /**

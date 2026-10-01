@@ -72,11 +72,16 @@ export const api = {
           body: JSON.stringify(input),
         })
       ).data,
-    listJournalEntries: (params: { page?: number; pageSize?: number; status?: string } = {}) =>
-      request<Paginated<JournalEntry>>(
-        LEDGER_URL,
-        `/api/journal-entries${query({ page: params.page, pageSize: params.pageSize, status: params.status })}`,
-      ),
+    setAccountActive: async (id: string, isActive: boolean) =>
+      (
+        await request<{ data: Account }>(LEDGER_URL, `/api/accounts/${id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ isActive }),
+        })
+      ).data,
+    listJournalEntries: (
+      params: { page?: number; pageSize?: number; status?: string; from?: string; to?: string } = {},
+    ) => request<Paginated<JournalEntry>>(LEDGER_URL, `/api/journal-entries${query(params)}`),
     createJournalEntry: async (input: CreateJournalEntryInput) =>
       (
         await request<{ data: JournalEntry }>(LEDGER_URL, "/api/journal-entries", {

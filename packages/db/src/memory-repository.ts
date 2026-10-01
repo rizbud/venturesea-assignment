@@ -132,6 +132,7 @@ export class InMemoryLedgerRepository implements LedgerRepository {
   async listJournalEntries(query: ListJournalEntriesQuery): Promise<Paginated<JournalEntry>> {
     const all = [...this.entries.values()]
       .filter((entry) => !query.status || entry.status === query.status)
+      .filter((entry) => (!query.from || entry.date >= query.from) && (!query.to || entry.date <= query.to))
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
     const start = (query.page - 1) * query.pageSize;
     return {

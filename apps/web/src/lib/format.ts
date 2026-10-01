@@ -1,4 +1,4 @@
-import { formatCurrency, formatMinor } from "@ledgerlab/shared";
+import { formatCurrency, formatMinor, type JournalEntry } from "@ledgerlab/shared";
 
 export function money(minor: number, currency = "USD"): string {
   return formatCurrency(minor, currency);
@@ -24,4 +24,9 @@ export function formatDate(iso: string): string {
     year: "numeric",
     timeZone: "UTC",
   });
+}
+
+/** An entry's size: the sum of its debit lines (equal to its credits when balanced). */
+export function entryAmount(entry: JournalEntry): number {
+  return entry.lines.reduce((sum, line) => (line.amountMinor > 0 ? sum + line.amountMinor : sum), 0);
 }

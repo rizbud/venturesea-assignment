@@ -14,12 +14,12 @@ export function THead({ children }: { children: ReactNode }) {
 }
 
 export function TBody({ children }: { children: ReactNode }) {
-  return <tbody className="divide-y divide-zinc-100">{children}</tbody>;
+  return <tbody className="divide-y divide-zinc-100 [&>tr:hover]:bg-zinc-50/60">{children}</tbody>;
 }
 
 export function TR({ className, children, ...rest }: HTMLAttributes<HTMLTableRowElement>) {
   return (
-    <tr {...rest} className={cn("hover:bg-zinc-50/60", className)}>
+    <tr {...rest} className={className}>
       {children}
     </tr>
   );

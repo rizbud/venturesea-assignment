@@ -17,6 +17,22 @@ const SIZES: Record<Size, string> = {
   md: "h-9 px-3.5 text-sm gap-2",
 };
 
+/** Button styling for elements that must not be a <button>, e.g. a router <Link>. */
+export function buttonClasses({
+  variant = "secondary",
+  size = "md",
+  className,
+}: { variant?: Variant; size?: Size; className?: string } = {}): string {
+  return cn(
+    "inline-flex items-center justify-center rounded-md font-medium transition-colors",
+    "focus-visible:outline-2 focus-visible:outline-offset-2",
+    "disabled:cursor-not-allowed disabled:opacity-50",
+    VARIANTS[variant],
+    SIZES[size],
+    className,
+  );
+}
+
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
   size?: Size;
@@ -34,18 +50,7 @@ export function Button({
   ...rest
 }: ButtonProps) {
   return (
-    <button
-      {...rest}
-      disabled={disabled || loading}
-      className={cn(
-        "inline-flex items-center justify-center rounded-md font-medium transition-colors",
-        "focus-visible:outline-2 focus-visible:outline-offset-2",
-        "disabled:cursor-not-allowed disabled:opacity-50",
-        VARIANTS[variant],
-        SIZES[size],
-        className,
-      )}
-    >
+    <button {...rest} disabled={disabled || loading} className={buttonClasses({ variant, size, className })}>
       {loading ? (
         <span
           aria-hidden

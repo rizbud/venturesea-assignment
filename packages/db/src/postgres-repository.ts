@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
 import type {
   Account,
   CreateAccountInput,
@@ -113,7 +113,11 @@ export class PostgresLedgerRepository implements LedgerRepository {
   }
 
   async listJournalEntries(query: ListJournalEntriesQuery): Promise<Paginated<JournalEntry>> {
-    const where = query.status ? eq(journalEntries.status, query.status) : undefined;
+    const where = and(
+      query.status ? eq(journalEntries.status, query.status) : undefined,
+      query.from ? gte(journalEntries.entryDate, query.from) : undefined,
+      query.to ? lte(journalEntries.entryDate, query.to) : undefined,
+    );
     const offset = (query.page - 1) * query.pageSize;
 
     const rows = await this.db
