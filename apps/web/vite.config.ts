@@ -10,6 +10,8 @@ export default defineConfig({
   },
   build: {
     outDir: "dist",
-    sourcemap: true,
+    // Off: dist/ is published as-is, so a map would serve the full source.
+    // Upload hidden maps to the error tracker instead once one exists.
+    sourcemap: false,
   },
 });
