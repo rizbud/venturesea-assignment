@@ -40,7 +40,8 @@ function sortRows(rows: TrialBalanceRow[]): TrialBalanceRow[] {
  * totalDebit === totalCredit.
  */
 export function buildTrialBalance(postings: readonly PostingRow[], asOf: string): TrialBalance {
-  const rows = sortRows([...aggregate(postings).values()]);
+  const scoped = postings.filter((p) => p.entryDate <= asOf);
+  const rows = sortRows([...aggregate(scoped).values()]);
   const totalDebitMinor = sumMinor(rows.map((r) => r.debitMinor));
   const totalCreditMinor = sumMinor(rows.map((r) => r.creditMinor));
   return {

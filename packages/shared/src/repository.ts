@@ -47,7 +47,10 @@ export interface LedgerRepository {
   listJournalEntries(query: ListJournalEntriesQuery): Promise<Paginated<JournalEntry>>;
   getJournalEntry(id: string): Promise<JournalEntry | undefined>;
   createJournalEntry(input: CreateJournalEntryInput): Promise<JournalEntry>;
-  /** Marks an entry VOID. Returns undefined when the entry does not exist. */
+  /**
+   * Transitions a POSTED entry to VOID. Returns undefined when the entry does
+   * not exist; throws ConflictError when it is not POSTED.
+   */
   voidJournalEntry(id: string): Promise<JournalEntry | undefined>;
 
   /** All lines belonging to POSTED entries, joined with account metadata. */

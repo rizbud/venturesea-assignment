@@ -179,6 +179,9 @@ export class InMemoryLedgerRepository implements LedgerRepository {
   async voidJournalEntry(id: string): Promise<JournalEntry | undefined> {
     const entry = this.entries.get(id);
     if (!entry) return undefined;
+    if (entry.status !== "POSTED") {
+      throw new ConflictError(`Journal entry ${id} is ${entry.status}; only POSTED entries can be voided`);
+    }
     const updated: JournalEntry = { ...entry, status: "VOID" };
     this.entries.set(id, updated);
     return updated;

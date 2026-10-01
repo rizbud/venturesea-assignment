@@ -173,10 +173,18 @@ export class PostgresLedgerRepository implements LedgerRepository {
   }
 
   async voidJournalEntry(id: string): Promise<JournalEntry | undefined> {
-    const existing = await this.getJournalEntry(id);
-    if (!existing) return undefined;
-    await this.db.update(journalEntries).set({ status: "VOID" }).where(eq(journalEntries.id, id));
-    return { ...existing, status: "VOID" };
+    // Conditional update so concurrent voids cannot both succeed.
+    const updated = await this.db
+      .update(journalEntries)
+      .set({ status: "VOID" })
+      .where(and(eq(journalEntries.id, id), eq(journalEntries.status, "POSTED")))
+      .returning({ id: journalEntries.id });
+    const entry = await this.getJournalEntry(id);
+    if (!entry) return undefined;
+    if (updated.length === 0) {
+      throw new ConflictError(`Journal entry ${id} is ${entry.status}; only POSTED entries can be voided`);
+    }
+    return entry;
   }
 
   async listPostings(): Promise<PostingRow[]> {
