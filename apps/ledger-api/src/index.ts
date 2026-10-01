@@ -10,8 +10,13 @@ const corsOrigins = (process.env.CORS_ORIGINS ?? "*")
   .map((s) => s.trim())
   .filter(Boolean);
 
+const closedThrough = process.env.LEDGER_CLOSED_THROUGH?.trim() || undefined;
+if (closedThrough && !/^\d{4}-\d{2}-\d{2}$/.test(closedThrough)) {
+  throw new Error(`LEDGER_CLOSED_THROUGH must be YYYY-MM-DD, got "${closedThrough}"`);
+}
+
 const { repository, close } = resolveLedgerRepository();
-const service = new LedgerService(repository);
+const service = new LedgerService(repository, { closedThrough });
 const app = createLedgerApp({
   service,
   corsOrigins,

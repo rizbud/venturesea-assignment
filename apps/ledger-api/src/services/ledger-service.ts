@@ -10,6 +10,7 @@ import type {
   TrialBalance,
 } from "@ledgerlab/shared";
 import {
+  ConflictError,
   NotFoundError,
   UnbalancedEntryError,
   ValidationError,
@@ -29,12 +30,35 @@ export interface ListEntriesParams {
  *   - a journal entry must have at least two lines
  *   - every line amount must be non-zero
  *   - debits must equal credits (sum of signed minor units === 0)
- *   - referenced accounts must exist
+ *   - referenced accounts must exist and be active
+ *   - nothing dated on or before `closedThrough` may be posted or voided
  *
  * The repository only persists; it does not decide what is valid.
  */
+export interface LedgerServiceOptions {
+  /**
+   * Last day of the most recent closed accounting period (YYYY-MM-DD). Entries
+   * dated on or before it are immutable: they cannot be posted or voided.
+   */
+  // ponytail: one global close date from config; add a periods table when
+  // periods must be closed/reopened at runtime or per business.
+  closedThrough?: string;
+}
+
 export class LedgerService {
-  constructor(private readonly repo: LedgerRepository) {}
+  constructor(
+    private readonly repo: LedgerRepository,
+    private readonly options: LedgerServiceOptions = {},
+  ) {}
+
+  private assertPeriodOpen(date: string, action: string): void {
+    const { closedThrough } = this.options;
+    if (closedThrough && date <= closedThrough) {
+      throw new ConflictError(
+        `Cannot ${action} an entry dated ${date}: the books are closed through ${closedThrough}`,
+      );
+    }
+  }
 
   get repositoryKind(): "memory" | "postgres" {
     return this.repo.kind;
@@ -81,14 +105,20 @@ export class LedgerService {
         total,
       );
     }
-    // Ensure every referenced account exists before persisting.
+    this.assertPeriodOpen(input.date, "post");
+    // Ensure every referenced account exists and is active before persisting.
     for (const line of input.lines) {
-      await this.getAccountOrThrow(line.accountId);
+      const account = await this.getAccountOrThrow(line.accountId);
+      if (!account.isActive) {
+        throw new ValidationError(`Account ${account.code} ${account.name} is inactive`);
+      }
     }
     return this.repo.createJournalEntry(input);
   }
 
   async voidJournalEntry(id: string): Promise<JournalEntry> {
+    const entry = await this.getJournalEntryOrThrow(id);
+    this.assertPeriodOpen(entry.date, "void");
     const voided = await this.repo.voidJournalEntry(id);
     if (!voided) throw new NotFoundError(`Journal entry ${id} not found`);
     return voided;
