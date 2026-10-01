@@ -1,5 +1,16 @@
 import { z } from "zod";
 
+/** True when `s` is YYYY-MM-DD and names a real day (2026-02-31 rolls over, so it fails). */
+function isCalendarDate(s: string): boolean {
+  const d = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+}
+
+export const isoDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD")
+  .refine(isCalendarDate, "is not a real calendar date");
+
 /**
  * The five fundamental account types of double-entry bookkeeping.
  *
@@ -63,7 +74,7 @@ export type EntryStatus = (typeof ENTRY_STATUSES)[number];
 export const journalEntrySchema = z.object({
   id: z.string().min(1),
   /** ISO date (YYYY-MM-DD) the entry affects. */
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "date must be YYYY-MM-DD"),
+  date: isoDateSchema,
   memo: z.string().min(1).max(280),
   reference: z.string().max(64).optional(),
   status: z.enum(ENTRY_STATUSES),
@@ -74,7 +85,7 @@ export type JournalEntry = z.infer<typeof journalEntrySchema>;
 
 /** Shape accepted by POST /api/journal-entries (server assigns ids/timestamps). */
 export const createJournalEntrySchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "date must be YYYY-MM-DD"),
+  date: isoDateSchema,
   memo: z.string().min(1).max(280),
   reference: z.string().max(64).optional(),
   lines: z

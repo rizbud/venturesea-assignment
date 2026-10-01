@@ -2,33 +2,44 @@
  * LedgerRepository contract: every adapter must uphold the same invariants.
  *
  * In-memory always runs. Postgres runs when TEST_DATABASE_URL points at a
- * MIGRATED, DISPOSABLE database — each test truncates the ledger tables.
+ * MIGRATED, DISPOSABLE database — each test truncates the ledger tables. The
+ * Postgres-only suite at the bottom lives in this file on purpose: vitest runs
+ * files in parallel, and two files truncating one database would race.
  */
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { InMemoryLedgerRepository, PostgresLedgerRepository, createDatabase } from "@ledgerlab/db";
+import {
+  InMemoryLedgerRepository,
+  PostgresLedgerRepository,
+  createDatabase,
+  seedPostgres,
+} from "@ledgerlab/db";
 import type { Account, LedgerRepository } from "@ledgerlab/shared";
 import { ConflictError, NotFoundError, sumMinor } from "@ledgerlab/shared";
 
 interface Adapter {
   name: string;
   create: () => Promise<LedgerRepository>;
-  close?: () => Promise<void>;
 }
 
 const adapters: Adapter[] = [{ name: "memory", create: async () => new InMemoryLedgerRepository() }];
 
 const pgUrl = process.env.TEST_DATABASE_URL;
-if (pgUrl) {
-  const { db, sql, close } = createDatabase(pgUrl, { max: 4 });
+const pg = pgUrl ? createDatabase(pgUrl, { max: 4 }) : undefined;
+// TRUNCATE skips row triggers, so the append-only guards do not block test resets.
+const resetPg = async () => pg!.sql`TRUNCATE journal_lines, journal_entries, accounts CASCADE`;
+if (pg) {
   adapters.push({
     name: "postgres",
     create: async () => {
-      await sql`TRUNCATE journal_lines, journal_entries, accounts CASCADE`;
-      return new PostgresLedgerRepository(db);
+      await resetPg();
+      return new PostgresLedgerRepository(pg.db);
     },
-    close,
   });
 }
+
+afterAll(async () => {
+  await pg?.close();
+});
 
 describe.each(adapters)("LedgerRepository contract ($name)", (adapter) => {
   let repo: LedgerRepository;
@@ -39,10 +50,6 @@ describe.each(adapters)("LedgerRepository contract ($name)", (adapter) => {
     repo = await adapter.create();
     cash = await repo.createAccount({ code: "1000", name: "Cash", type: "ASSET", currency: "USD" });
     revenue = await repo.createAccount({ code: "4000", name: "Revenue", type: "REVENUE", currency: "USD" });
-  });
-
-  afterAll(async () => {
-    await adapter.close?.();
   });
 
   function sale(amountMinor: number, date = "2026-03-01") {
@@ -160,5 +167,83 @@ describe.each(adapters)("LedgerRepository contract ($name)", (adapter) => {
 
   it("returns undefined when voiding an unknown entry", async () => {
     expect(await repo.voidJournalEntry("je_missing")).toBeUndefined();
+  });
+});
+
+describe.skipIf(!pg)("Postgres enforces the invariants itself (bypassing the app)", () => {
+  let entryId: string;
+  let lineId: string;
+
+  beforeEach(async () => {
+    await resetPg();
+    const repo = new PostgresLedgerRepository(pg!.db);
+    const cash = await repo.createAccount({ code: "1000", name: "Cash", type: "ASSET", currency: "USD" });
+    const revenue = await repo.createAccount({
+      code: "4000",
+      name: "Revenue",
+      type: "REVENUE",
+      currency: "USD",
+    });
+    const entry = await repo.createJournalEntry({
+      date: "2026-03-01",
+      memo: "Sale",
+      lines: [
+        { accountId: cash.id, amountMinor: 500 },
+        { accountId: revenue.id, amountMinor: -500 },
+      ],
+    });
+    entryId = entry.id;
+    lineId = entry.lines[0]!.id;
+  });
+
+  it("rejects an unbalanced entry at commit", async () => {
+    const [{ id: accountId }] = await pg!.sql<[{ id: string }]>`SELECT id FROM accounts WHERE code = '1000'`;
+    await expect(
+      pg!.sql.begin(async (tx) => {
+        await tx`INSERT INTO journal_entries (id, entry_date, memo) VALUES ('je_raw', '2026-03-02', 'raw')`;
+        await tx`INSERT INTO journal_lines (id, entry_id, account_id, amount_minor) VALUES ('jl_raw', 'je_raw', ${accountId}, 100)`;
+      }),
+    ).rejects.toThrow(/unbalanced/);
+    expect(await pg!.sql`SELECT 1 FROM journal_entries WHERE id = 'je_raw'`).toHaveLength(0);
+  });
+
+  it("refuses to edit or delete posted lines", async () => {
+    await expect(pg!.sql`UPDATE journal_lines SET amount_minor = 999 WHERE id = ${lineId}`).rejects.toThrow(
+      /append-only/,
+    );
+    await expect(pg!.sql`DELETE FROM journal_lines WHERE id = ${lineId}`).rejects.toThrow(/append-only/);
+  });
+
+  it("refuses to delete entries or move them anywhere but POSTED -> VOID", async () => {
+    await expect(pg!.sql`DELETE FROM journal_entries WHERE id = ${entryId}`).rejects.toThrow(/append-only/);
+    await expect(pg!.sql`UPDATE journal_entries SET memo = 'edited' WHERE id = ${entryId}`).rejects.toThrow(
+      /POSTED -> VOID/,
+    );
+    await pg!.sql`UPDATE journal_entries SET status = 'VOID' WHERE id = ${entryId}`;
+    await expect(pg!.sql`UPDATE journal_entries SET status = 'POSTED' WHERE id = ${entryId}`).rejects.toThrow(
+      /POSTED -> VOID/,
+    );
+  });
+
+  it("rejects impossible dates and zero-amount lines", async () => {
+    await expect(
+      pg!.sql`INSERT INTO journal_entries (id, entry_date, memo) VALUES ('je_bad', '2026-02-31', 'bad')`,
+    ).rejects.toThrow();
+    await expect(
+      pg!
+        .sql`INSERT INTO journal_lines (id, entry_id, account_id, amount_minor) SELECT 'jl_zero', ${entryId}, id, 0 FROM accounts LIMIT 1`,
+    ).rejects.toThrow(/amount_nonzero/);
+  });
+
+  it("seeds idempotently: a second run inserts nothing", async () => {
+    await resetPg();
+    const first = await seedPostgres(pg!.db);
+    const second = await seedPostgres(pg!.db);
+    expect(first.entries).toBeGreaterThan(0);
+    expect(second.entries).toBe(0);
+    const [{ count }] = await pg!.sql<
+      [{ count: number }]
+    >`SELECT count(*)::int AS count FROM journal_entries`;
+    expect(count).toBe(first.entries);
   });
 });

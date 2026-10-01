@@ -60,6 +60,10 @@ export class LedgerService {
     return this.repo.kind;
   }
 
+  ping(): Promise<void> {
+    return this.repo.ping();
+  }
+
   listAccounts(): Promise<Account[]> {
     return this.repo.listAccounts();
   }

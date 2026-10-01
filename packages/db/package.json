@@ -14,9 +14,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "generate": "drizzle-kit generate",
-    "migrate": "drizzle-kit migrate",
-    "migrate:sql": "tsx src/migrate.ts",
+    "migrate:sql": "node migrate.mjs",
     "studio": "drizzle-kit studio",
     "seed": "tsx src/seed-cli.ts",
     "clean": "rm -rf dist .turbo"

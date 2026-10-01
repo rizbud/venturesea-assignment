@@ -1,14 +1,13 @@
-import { ENTRY_STATUSES, createJournalEntrySchema, paginationSchema } from "@ledgerlab/shared";
+import { ENTRY_STATUSES, createJournalEntrySchema, isoDateSchema, paginationSchema } from "@ledgerlab/shared";
 import { z } from "zod";
 import { Hono } from "hono";
 import type { LedgerService } from "../services/ledger-service";
 import { parseBody, parseQuery } from "./validate";
 
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD");
 const listQuerySchema = paginationSchema.extend({
   status: z.enum(ENTRY_STATUSES).optional(),
-  from: isoDate.optional(),
-  to: isoDate.optional(),
+  from: isoDateSchema.optional(),
+  to: isoDateSchema.optional(),
 });
 
 export function journalEntryRoutes(service: LedgerService): Hono {

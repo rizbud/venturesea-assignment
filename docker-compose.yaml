@@ -1,0 +1,22 @@
+# Local development database. Not used in production (that is a managed Postgres).
+#   docker compose up -d db
+#   DATABASE_URL=postgres://ledgerlab:ledgerlab@localhost:5432/ledgerlab pnpm --filter @ledgerlab/db migrate:sql
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ledgerlab
+      POSTGRES_PASSWORD: ledgerlab # local only; production credentials come from the platform secret store
+      POSTGRES_DB: ledgerlab
+    ports:
+      - "5432:5432"
+    volumes:
+      - ledgerlab-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ledgerlab -d ledgerlab"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  ledgerlab-db:

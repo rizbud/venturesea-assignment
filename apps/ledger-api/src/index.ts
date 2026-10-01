@@ -27,10 +27,15 @@ const server = serve({ fetch: app.fetch, port, hostname }, (info) => {
   console.log(`[ledger-api] listening on http://${info.address}:${info.port} (repo: ${repository.kind})`);
 });
 
+// Stop accepting connections, let in-flight requests finish, then release the
+// DB pool. Closing the pool first would fail those requests mid-transaction.
 async function shutdown(signal: string): Promise<void> {
   console.log(`[ledger-api] ${signal} received, shutting down`);
-  await close();
-  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(1), 10_000).unref();
+  server.close(async () => {
+    await close();
+    process.exit(0);
+  });
 }
 
 process.on("SIGINT", () => void shutdown("SIGINT"));

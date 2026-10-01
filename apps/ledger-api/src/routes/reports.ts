@@ -1,13 +1,11 @@
 import { z } from "zod";
 import { Hono } from "hono";
+import { isoDateSchema } from "@ledgerlab/shared";
 import type { LedgerService } from "../services/ledger-service";
 import { parseQuery } from "./validate";
 
 const asOfSchema = z.object({
-  asOf: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "asOf must be YYYY-MM-DD")
-    .default(() => new Date().toISOString().slice(0, 10)),
+  asOf: isoDateSchema.default(() => new Date().toISOString().slice(0, 10)),
 });
 
 export function reportRoutes(service: LedgerService): Hono {

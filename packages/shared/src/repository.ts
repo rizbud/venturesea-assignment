@@ -42,6 +42,9 @@ export interface ListJournalEntriesQuery {
 export interface LedgerRepository {
   readonly kind: "memory" | "postgres";
 
+  /** Resolves when storage is reachable; rejects otherwise. Used by /health. */
+  ping(): Promise<void>;
+
   listAccounts(): Promise<Account[]>;
   getAccountById(id: string): Promise<Account | undefined>;
   getAccountByCode(code: string): Promise<Account | undefined>;

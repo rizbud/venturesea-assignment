@@ -1,4 +1,4 @@
-import { bigint, integer, pgEnum, pgTable, text, timestamp, varchar, index } from "drizzle-orm/pg-core";
+import { bigint, date, integer, pgEnum, pgTable, text, timestamp, varchar, index } from "drizzle-orm/pg-core";
 
 export const accountTypeEnum = pgEnum("account_type", ["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"]);
 
@@ -22,7 +22,7 @@ export const journalEntries = pgTable(
   "journal_entries",
   {
     id: varchar("id", { length: 64 }).primaryKey(),
-    entryDate: varchar("entry_date", { length: 10 }).notNull(),
+    entryDate: date("entry_date", { mode: "string" }).notNull(),
     memo: text("memo").notNull(),
     reference: varchar("reference", { length: 64 }),
     status: entryStatusEnum("status").notNull().default("POSTED"),
@@ -53,4 +53,6 @@ export const journalLines = pgTable(
   ],
 );
 
+// Invariants enforced in SQL (migrations/0002_integrity.sql), not modelled here:
+// balanced entries, non-zero lines, append-only lines/entries, POSTED -> VOID only.
 export const schema = { accounts, journalEntries, journalLines };

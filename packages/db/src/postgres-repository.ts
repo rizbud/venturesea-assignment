@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import type {
   Account,
   CreateAccountInput,
@@ -89,7 +89,14 @@ export class PostgresLedgerRepository implements LedgerRepository {
     return row ? toAccount(row) : undefined;
   }
 
-  private async linesFor(entryId: string): Promise<JournalLine[]> {
+  async ping(): Promise<void> {
+    await this.db.execute(sql`select 1`);
+  }
+
+  /** Lines for many entries in one query, grouped by entry id. */
+  private async linesFor(entryIds: string[]): Promise<Map<string, JournalLine[]>> {
+    const byEntry = new Map<string, JournalLine[]>(entryIds.map((id) => [id, []]));
+    if (entryIds.length === 0) return byEntry;
     const rows = await this.db
       .select({
         line: journalLines,
@@ -98,18 +105,21 @@ export class PostgresLedgerRepository implements LedgerRepository {
       })
       .from(journalLines)
       .innerJoin(accounts, eq(journalLines.accountId, accounts.id))
-      .where(eq(journalLines.entryId, entryId))
+      .where(inArray(journalLines.entryId, entryIds))
       .orderBy(asc(journalLines.position));
 
-    return rows.map(({ line, accountCode, accountName }) => ({
-      id: line.id,
-      entryId: line.entryId,
-      accountId: line.accountId,
-      accountCode,
-      accountName,
-      amountMinor: line.amountMinor,
-      memo: line.memo ?? undefined,
-    }));
+    for (const { line, accountCode, accountName } of rows) {
+      byEntry.get(line.entryId)?.push({
+        id: line.id,
+        entryId: line.entryId,
+        accountId: line.accountId,
+        accountCode,
+        accountName,
+        amountMinor: line.amountMinor,
+        memo: line.memo ?? undefined,
+      });
+    }
+    return byEntry;
   }
 
   async listJournalEntries(query: ListJournalEntriesQuery): Promise<Paginated<JournalEntry>> {
@@ -134,14 +144,15 @@ export class PostgresLedgerRepository implements LedgerRepository {
       .where(where);
     const total = countRow?.value ?? 0;
 
-    const data = await Promise.all(rows.map(async (row) => toEntry(row, await this.linesFor(row.id))));
+    const lines = await this.linesFor(rows.map((row) => row.id));
+    const data = rows.map((row) => toEntry(row, lines.get(row.id) ?? []));
     return { data, page: query.page, pageSize: query.pageSize, total };
   }
 
   async getJournalEntry(id: string): Promise<JournalEntry | undefined> {
     const [row] = await this.db.select().from(journalEntries).where(eq(journalEntries.id, id)).limit(1);
     if (!row) return undefined;
-    return toEntry(row, await this.linesFor(row.id));
+    return toEntry(row, (await this.linesFor([row.id])).get(row.id) ?? []);
   }
 
   async createJournalEntry(input: CreateJournalEntryInput): Promise<JournalEntry> {
@@ -153,9 +164,16 @@ export class PostgresLedgerRepository implements LedgerRepository {
     }
 
     const id = createId("je");
-    const lineIds: string[] = [];
+    const accountIds = [...new Set(input.lines.map((line) => line.accountId))];
 
     await this.db.transaction(async (tx) => {
+      const found = await tx
+        .select({ id: accounts.id })
+        .from(accounts)
+        .where(inArray(accounts.id, accountIds));
+      const missing = accountIds.find((accountId) => !found.some((a) => a.id === accountId));
+      if (missing) throw new NotFoundError(`Account ${missing} not found`);
+
       await tx.insert(journalEntries).values({
         id,
         entryDate: input.date,
@@ -163,21 +181,17 @@ export class PostgresLedgerRepository implements LedgerRepository {
         reference: input.reference ?? null,
         status: "POSTED",
       });
-
-      for (const [position, line] of input.lines.entries()) {
-        const account = await tx.select().from(accounts).where(eq(accounts.id, line.accountId)).limit(1);
-        if (!account[0]) throw new NotFoundError(`Account ${line.accountId} not found`);
-        const lineId = createId("jl");
-        lineIds.push(lineId);
-        await tx.insert(journalLines).values({
-          id: lineId,
+      // The deferred balance trigger (0002_integrity.sql) re-checks the sum at commit.
+      await tx.insert(journalLines).values(
+        input.lines.map((line, position) => ({
+          id: createId("jl"),
           entryId: id,
           accountId: line.accountId,
           amountMinor: line.amountMinor,
           position,
           memo: line.memo ?? null,
-        });
-      }
+        })),
+      );
     });
 
     const created = await this.getJournalEntry(id);

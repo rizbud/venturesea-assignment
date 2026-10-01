@@ -1,10 +1,9 @@
 import { z } from "zod";
 import { Hono } from "hono";
-import { ValidationError } from "@ledgerlab/shared";
+import { ValidationError, isoDateSchema as isoDate } from "@ledgerlab/shared";
 import type { ReportingService } from "../services/reporting-service";
 
 const today = () => new Date().toISOString().slice(0, 10);
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD");
 
 const asOfSchema = z.object({ asOf: isoDate.default(today) });
 const rangeSchema = z.object({

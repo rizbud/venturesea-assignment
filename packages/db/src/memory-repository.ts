@@ -92,6 +92,8 @@ export class InMemoryLedgerRepository implements LedgerRepository {
     return undefined;
   }
 
+  async ping(): Promise<void> {}
+
   async listAccounts(): Promise<Account[]> {
     return [...this.accounts.values()].sort((a, b) => a.code.localeCompare(b.code));
   }

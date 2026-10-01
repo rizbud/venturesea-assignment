@@ -32,7 +32,10 @@ export function createLedgerApp({ service, corsOrigins = ["*"], internalToken }:
     }),
   );
 
-  app.route("/", healthRoutes("ledger-api", service.repositoryKind));
+  app.route(
+    "/",
+    healthRoutes("ledger-api", service.repositoryKind, () => service.ping()),
+  );
   app.route("/api/accounts", accountRoutes(service));
   app.route("/api/journal-entries", journalEntryRoutes(service));
   app.route("/api/reports", reportRoutes(service));

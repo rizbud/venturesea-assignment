@@ -3,6 +3,7 @@ import type { Account, HealthResponse, JournalEntry, Paginated, TrialBalance } f
 import { InMemoryLedgerRepository } from "@ledgerlab/db";
 import { createLedgerApp } from "../app";
 import { LedgerService } from "../services/ledger-service";
+import { resolveLedgerRepository } from "../repositories/resolve";
 
 function buildApp() {
   const repository = new InMemoryLedgerRepository({ seed: true });
@@ -186,5 +187,40 @@ describe("ledger-api", () => {
   it("returns 400 for invalid pagination", async () => {
     const res = await app.request("/api/journal-entries?page=0");
     expect(res.status).toBe(400);
+  });
+});
+
+describe("ledger-api storage and input guards", () => {
+  it("reports 503 degraded when storage is unreachable", async () => {
+    class DownRepository extends InMemoryLedgerRepository {
+      override async ping(): Promise<void> {
+        throw new Error("connection refused");
+      }
+    }
+    const app = createLedgerApp({ service: new LedgerService(new DownRepository()) });
+    const res = await app.request("/health");
+    expect(res.status).toBe(503);
+    expect((await json<HealthResponse>(res)).status).toBe("degraded");
+  });
+
+  it("rejects impossible calendar dates with 400 instead of storing them", async () => {
+    const app = buildApp();
+    const [cash, revenue] = (await listAccounts(app)).filter((a) => a.code === "1000" || a.code === "4000");
+    for (const date of ["2026-02-31", "2026-13-01"]) {
+      const res = await postJson(app, "/api/journal-entries", {
+        date,
+        memo: "Bad date",
+        lines: [
+          { accountId: cash!.id, amountMinor: 100 },
+          { accountId: revenue!.id, amountMinor: -100 },
+        ],
+      });
+      expect(res.status).toBe(400);
+    }
+    expect((await app.request("/api/reports/trial-balance?asOf=2026-02-30")).status).toBe(400);
+  });
+
+  it("refuses to start on in-memory storage in production", () => {
+    expect(() => resolveLedgerRepository({ NODE_ENV: "production" })).toThrow(/DATABASE_URL is required/);
   });
 });
