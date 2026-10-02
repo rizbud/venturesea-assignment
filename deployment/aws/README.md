@@ -5,9 +5,11 @@ The production target. Infrastructure is code in [`infra/aws`](../../infra/aws)
 runs [`deploy.sh`](deploy.sh) when started by hand; it builds, migrates and
 rolls out. Nothing deploys automatically. AWS access is OIDC: no AWS keys in GitHub.
 
-> **Status (2026-10-01):** the stacks synthesize and are covered by assertion
-> tests (`pnpm --filter @ledgerlab/infra-aws test`). They have not been deployed:
-> that needs an AWS account, a domain and Cloudflare.
+> **Status (2026-10-02):** the stacks synthesize and are covered by assertion
+> tests (`pnpm --filter @ledgerlab/infra-aws test`), and `deploy.sh` has run end
+> to end against LocalStack (`deployment/aws/localstack.sh`,
+> [evidence](../../docs/evidence/localstack-rehearsal.md)). Not deployed to a real
+> account yet: that needs an AWS account, a domain and Cloudflare.
 
 ## Shape
 
