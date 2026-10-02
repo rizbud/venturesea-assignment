@@ -85,11 +85,11 @@ services, automatically rolled back if the new tasks do not turn healthy.
 For a short-lived deployment that is torn down after review. Same services,
 2 tasks each, same private subnets; three cost cuts:
 
-| Setting     | Production      | Review                                                      |
-| ----------- | --------------- | ----------------------------------------------------------- |
-| Egress      | NAT gateway     | one `t4g.nano` NAT instance, inbound from the VPC CIDR only |
-| RDS         | Multi-AZ        | single-AZ, deletion protection off (snapshot on delete)     |
-| ledger task | 0.5 vCPU / 1 GB | 0.25 vCPU / 0.5 GB                                          |
+| Setting     | Production      | Review                                                       |
+| ----------- | --------------- | ------------------------------------------------------------ |
+| Egress      | NAT gateway     | one `t4g.micro` NAT instance, inbound from the VPC CIDR only |
+| RDS         | Multi-AZ        | single-AZ, deletion protection off (snapshot on delete)      |
+| ledger task | 0.5 vCPU / 1 GB | 0.25 vCPU / 0.5 GB                                           |
 
 Set the repository variable `REVIEW=true` (or `REVIEW=true deployment/aws/deploy.sh`).
 **Go live:** delete the variable and run Deploy again; CDK replaces the NAT

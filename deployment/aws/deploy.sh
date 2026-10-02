@@ -64,12 +64,13 @@ for image in ledger-api:$TAG ledger-api:migrate reporting-api:$TAG web:$TAG; do
   docker push "$REGISTRY/ledgerlab/$image"
 done
 
-if aws cloudformation describe-stacks --stack-name LedgerLab >/dev/null 2>&1; then
+# 0 or missing (no stack yet, or a first deploy that stopped before scaling): first-deploy path.
+if [ "$(output TasksPerService 2>/dev/null)" -gt 0 ] 2>/dev/null; then
   migrate
   echo "==> rolling services to $TAG"
   cdk deploy LedgerLab -c domainName="$DOMAIN" -c imageTag="$TAG"
 else
-  echo "==> first deploy: creating the stack with 0 tasks"
+  echo "==> first deploy: creating or updating the stack with 0 tasks"
   echo "    ACM waits for DNS validation: add the CNAMEs shown in the ACM console to Cloudflare (DNS only)."
   cdk deploy LedgerLab -c domainName="$DOMAIN" -c imageTag="$TAG" -c tasksPerService=0
   migrate

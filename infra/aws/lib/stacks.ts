@@ -88,7 +88,9 @@ export class LedgerLabStack extends Stack {
     // for days. Production (review = false) uses a NAT gateway.
     const natInstance = review
       ? ec2.NatProvider.instanceV2({
-          instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.NANO),
+          // nano (512 MB) runs out of memory in the setup script's dnf install.
+          instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.MICRO),
+          machineImage: ec2.MachineImage.latestAmazonLinux2023({ cpuType: ec2.AmazonLinuxCpuType.ARM_64 }),
           // The CDK default admits all inbound IPv4; only the VPC may route through it.
           defaultAllowedTraffic: ec2.NatTrafficDirection.OUTBOUND_ONLY,
         })
@@ -355,6 +357,8 @@ export class LedgerLabStack extends Stack {
       description: "Point the three Cloudflare CNAMEs (proxied) here",
     });
     new CfnOutput(this, "ClusterName", { value: cluster.clusterName });
+    // deploy.sh resumes an unfinished first deploy while this is 0.
+    new CfnOutput(this, "TasksPerService", { value: String(tasksPerService) });
     new CfnOutput(this, "MigrateTaskDefinition", { value: migrateTask.taskDefinitionArn });
     new CfnOutput(this, "MigrateSecurityGroup", { value: migrateSecurityGroup.securityGroupId });
     new CfnOutput(this, "AppSubnets", {

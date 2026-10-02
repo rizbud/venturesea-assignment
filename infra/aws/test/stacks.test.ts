@@ -42,7 +42,7 @@ describe("LedgerLab stack", () => {
 
     const review = synth({ review: true });
     review.resourceCountIs("AWS::EC2::NatGateway", 0);
-    review.hasResourceProperties("AWS::EC2::Instance", { InstanceType: "t4g.nano", SourceDestCheck: false });
+    review.hasResourceProperties("AWS::EC2::Instance", { InstanceType: "t4g.micro", SourceDestCheck: false });
     review.hasResourceProperties("AWS::RDS::DBInstance", { MultiAZ: false, DeletionProtection: false });
     review.hasResourceProperties("AWS::ECS::TaskDefinition", {
       Cpu: "256",
