@@ -56,8 +56,8 @@ docker build -f deployment/Dockerfile.ledger-api -t "$REGISTRY/ledgerlab/ledger-
 docker build -f deployment/Dockerfile.reporting-api -t "$REGISTRY/ledgerlab/reporting-api:$TAG" .
 # Vite inlines the API origins at build time.
 docker build -f deployment/Dockerfile.web \
-  --build-arg VITE_LEDGER_API_URL="https://api.$DOMAIN" \
-  --build-arg VITE_REPORTING_API_URL="https://reports.$DOMAIN" \
+  --build-arg VITE_LEDGER_API_URL="https://${DOMAIN%%.*}-api.${DOMAIN#*.}" \
+  --build-arg VITE_REPORTING_API_URL="https://${DOMAIN%%.*}-reports.${DOMAIN#*.}" \
   -t "$REGISTRY/ledgerlab/web:$TAG" .
 docker tag "$REGISTRY/ledgerlab/ledger-api:$TAG" "$REGISTRY/ledgerlab/ledger-api:migrate"
 for image in ledger-api:$TAG ledger-api:migrate reporting-api:$TAG web:$TAG; do

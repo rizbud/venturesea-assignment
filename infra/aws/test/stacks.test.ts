@@ -125,8 +125,8 @@ describe("LedgerLab stack", () => {
     template.hasResourceProperties("AWS::ElasticLoadBalancingV2::Listener", { Port: 443, Protocol: "HTTPS" });
     template.resourcePropertiesCountIs("AWS::ElasticLoadBalancingV2::Listener", { Port: 80 }, 0);
     for (const [host, path] of [
-      ["api.ledgerlab.example.com", "/health"],
-      ["reports.ledgerlab.example.com", "/health"],
+      ["ledgerlab-api.example.com", "/health"],
+      ["ledgerlab-reports.example.com", "/health"],
       ["ledgerlab.example.com", "/healthz"],
     ] as const) {
       template.hasResourceProperties("AWS::ElasticLoadBalancingV2::ListenerRule", {

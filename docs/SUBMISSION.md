@@ -152,7 +152,7 @@ frame-ancestors 'none'`, `x-content-type-options: nosniff`,
 - **`dig +short` output:** n/a.
 - **TLS mode:** Full (strict) is specified in the runbook; not applied.
 - **WAF rule and rate-limit rule:**
-  `(http.host eq "api.ledgerlab.example.com" and starts_with(http.request.uri.path, "/api/internal/"))`
+  `(http.host eq "ledgerlab-api.example.com" and starts_with(http.request.uri.path, "/api/internal/"))`
   → Block; rate limit on `starts_with(http.request.uri.path, "/api/")`, 50 per
   10 s per IP.
 - **`/api/internal/*` blocked at edge:** configured, not live; the origin lock

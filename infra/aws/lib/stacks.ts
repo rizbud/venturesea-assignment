@@ -57,7 +57,7 @@ export class RegistryStack extends Stack {
 }
 
 export interface LedgerLabStackProps extends StackProps {
-  /** Apex served by the dashboard; the APIs live on api.<domain> and reports.<domain>. */
+  /** Host served by the dashboard; the APIs live on <name>-api.<parent> and <name>-reports.<parent>. */
   domainName: string;
   /** Image tag (git SHA) for the three services. */
   imageTag: string;
@@ -80,8 +80,9 @@ export class LedgerLabStack extends Stack {
   constructor(scope: Construct, id: string, props: LedgerLabStackProps) {
     super(scope, id, props);
     const { domainName, imageTag, tasksPerService = 2, review = false, multiAz = !review } = props;
-    const apiHost = `api.${domainName}`;
-    const reportsHost = `reports.${domainName}`;
+    // Siblings, not sub-subdomains: Cloudflare Universal SSL covers *.<parent> only.
+    const apiHost = domainName.replace(".", "-api.");
+    const reportsHost = domainName.replace(".", "-reports.");
 
     // ponytail: one NAT instance, no failover; fine for a review stack that lives
     // for days. Production (review = false) uses a NAT gateway.
@@ -367,7 +368,11 @@ export class LedgerLabStack extends Stack {
 }
 
 export interface GithubDeployStackProps extends StackProps {
-  /** owner/name of the GitHub repository whose `production` environment may deploy. */
+  /**
+   * owner/name of the GitHub repository whose `production` environment may deploy,
+   * exactly as its OIDC `sub` claim spells it (repositories with immutable subjects
+   * use owner@id/name@id; see GET /repos/{repo}/actions/oidc/customization/sub).
+   */
   repository: string;
 }
 

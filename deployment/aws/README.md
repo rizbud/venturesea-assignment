@@ -18,8 +18,8 @@ Cloudflare (TLS, WAF, rate limit, adds X-Origin-Secret)
   │  HTTPS, Cloudflare IPv4 ranges only (ALB security group)
   ▼
 ALB :443 ── host ledgerlab.example.com          → web            (2+ tasks, nginx, /healthz)
-         ── host api.ledgerlab.example.com      → ledger-api     (2+ tasks, /health)
-         ── host reports.ledgerlab.example.com  → reporting-api  (2+ tasks, /health)
+         ── host ledgerlab-api.example.com      → ledger-api     (2+ tasks, /health)
+         ── host ledgerlab-reports.example.com  → reporting-api  (2+ tasks, /health)
                                                    │ Service Connect: http://ledger-api:4001
                                                    ▼  (never through the ALB)
 private subnets ── ledger-api ── TLS ──► RDS Postgres 16 (isolated subnets, Multi-AZ,

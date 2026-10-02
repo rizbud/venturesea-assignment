@@ -14,8 +14,8 @@ The bank asked for HTTPS on a domain it recognises, a WAF, rate limiting and
 | Host                            | Origin (Render)                         |
 | ------------------------------- | --------------------------------------- |
 | `ledgerlab.example.com`         | `ledgerlab-web` (static site)           |
-| `api.ledgerlab.example.com`     | `ledgerlab-ledger-api` (2 instances)    |
-| `reports.ledgerlab.example.com` | `ledgerlab-reporting-api` (2 instances) |
+| `ledgerlab-api.example.com`     | `ledgerlab-ledger-api` (2 instances)    |
+| `ledgerlab-reports.example.com` | `ledgerlab-reporting-api` (2 instances) |
 
 Replace `ledgerlab.example.com` with the real domain everywhere below.
 
@@ -43,7 +43,7 @@ this step anyone could call `*.onrender.com` directly and skip every rule below.
    `/api/internal/*` (private-network calls never pass Cloudflare).
    Implementation: `requireOriginSecret` in `packages/shared/src/http.ts`.
 3. Cloudflare → Rules → **Transform Rules → Modify Request Header**:
-   - When: `(http.host in {"api.ledgerlab.example.com" "reports.ledgerlab.example.com"})`
+   - When: `(http.host in {"ledgerlab-api.example.com" "ledgerlab-reports.example.com"})`
    - Set static header `X-Origin-Secret` = the secret.
 
 ## 3. WAF
@@ -55,7 +55,7 @@ Security → WAF:
 - **Custom rule "block internal API"**, action **Block**:
 
   ```
-  (http.host eq "api.ledgerlab.example.com" and starts_with(http.request.uri.path, "/api/internal/"))
+  (http.host eq "ledgerlab-api.example.com" and starts_with(http.request.uri.path, "/api/internal/"))
   ```
 
   Any method, not just `POST`. The reporting service reaches this path on
@@ -65,14 +65,14 @@ Security → WAF:
   `GET`, `POST`, `PATCH`, `OPTIONS`.
 
   ```
-  (http.host in {"api.ledgerlab.example.com" "reports.ledgerlab.example.com"} and not http.request.method in {"GET" "POST" "PATCH" "OPTIONS"})
+  (http.host in {"ledgerlab-api.example.com" "ledgerlab-reports.example.com"} and not http.request.method in {"GET" "POST" "PATCH" "OPTIONS"})
   ```
 
 ## 4. Rate limiting
 
 Security → WAF → **Rate limiting rules**, one rule:
 
-- When: `(http.host in {"api.ledgerlab.example.com" "reports.ledgerlab.example.com"} and starts_with(http.request.uri.path, "/api/"))`
+- When: `(http.host in {"ledgerlab-api.example.com" "ledgerlab-reports.example.com"} and starts_with(http.request.uri.path, "/api/"))`
 - Characteristic: IP. **50 requests per 10 seconds** (= 300/min, the same
   budget as the app's per-instance limit), action **Block** for 60 s (use the
   shortest period/duration your plan offers if these are not available).
@@ -88,7 +88,7 @@ Rules → **Cache Rules**:
 | When                                                                                      | Action                                                 |
 | ----------------------------------------------------------------------------------------- | ------------------------------------------------------ |
 | `http.host eq "ledgerlab.example.com" and starts_with(http.request.uri.path, "/assets/")` | Eligible for cache, Edge TTL 1 year (hashed filenames) |
-| `http.host in {"api.ledgerlab.example.com" "reports.ledgerlab.example.com"}`              | **Bypass cache** (financial data, never cached)        |
+| `http.host in {"ledgerlab-api.example.com" "ledgerlab-reports.example.com"}`              | **Bypass cache** (financial data, never cached)        |
 
 The SPA document (`/`, `/index.html`) keeps Render's default short caching so a
 deploy is visible immediately. Brotli on; Browser Cache TTL "Respect Existing Headers".
@@ -96,27 +96,27 @@ deploy is visible immediately. Brotli on; Browser Cache TTL "Respect Existing He
 ## 6. Point the app at the new hostnames
 
 - Both APIs: `CORS_ORIGINS=https://ledgerlab.example.com`.
-- Dashboard: `VITE_LEDGER_API_URL=https://api.ledgerlab.example.com`,
-  `VITE_REPORTING_API_URL=https://reports.ledgerlab.example.com`, and in
+- Dashboard: `VITE_LEDGER_API_URL=https://ledgerlab-api.example.com`,
+  `VITE_REPORTING_API_URL=https://ledgerlab-reports.example.com`, and in
   `render.yaml` set the CSP `connect-src` to those two origins. Redeploy the
   dashboard (the `VITE_*` values are baked in at build time).
 
 ## 7. Verification evidence (commit the output to `docs/evidence/G6-cloudflare.md`)
 
 ```bash
-dig +short ledgerlab.example.com api.ledgerlab.example.com
+dig +short ledgerlab.example.com ledgerlab-api.example.com
 # expect Cloudflare anycast addresses (104.x / 172.6x.x), not Render's
 
-curl -sI https://api.ledgerlab.example.com/health
+curl -sI https://ledgerlab-api.example.com/health
 # expect HTTP/2 200, a cf-ray header, strict-transport-security
 
-curl -s -o /dev/null -w '%{http_code}\n' https://api.ledgerlab.example.com/api/internal/account-totals
+curl -s -o /dev/null -w '%{http_code}\n' https://ledgerlab-api.example.com/api/internal/account-totals
 # expect 403 from the edge (WAF), never 200
 
 curl -s -o /dev/null -w '%{http_code}\n' https://ledgerlab-ledger-api.onrender.com/api/accounts
 # expect 403 from the origin lock (no X-Origin-Secret)
 
-for i in $(seq 1 80); do curl -s -o /dev/null -w '%{http_code}\n' https://api.ledgerlab.example.com/api/accounts; done | sort | uniq -c
+for i in $(seq 1 80); do curl -s -o /dev/null -w '%{http_code}\n' https://ledgerlab-api.example.com/api/accounts; done | sort | uniq -c
 # expect a run of 200s, then 429s from the edge rule
 
 curl -sI http://ledgerlab.example.com | head -1
