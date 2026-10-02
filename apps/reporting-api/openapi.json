@@ -1,0 +1,586 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LedgerLab Reporting API",
+    "version": "0.1.0",
+    "description": "Financial reports computed from the ledger's per-account totals (GET /api/internal/account-totals on the ledger API, over the private network). Holds no database of its own. Money is integer minor units (cents). In production every request except /health must arrive through Cloudflare (X-Origin-Secret, added at the edge)."
+  },
+  "servers": [
+    {
+      "url": "https://ledgerlab-reports.rizbud.com",
+      "description": "Review deployment (AWS, behind Cloudflare)"
+    },
+    {
+      "url": "http://localhost:4002",
+      "description": "Local development"
+    }
+  ],
+  "security": [],
+  "tags": [
+    {
+      "name": "Health",
+      "description": "Liveness for load balancers and uptime monitors; not behind the origin lock."
+    },
+    {
+      "name": "Reports",
+      "description": "Read-only financial reports."
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Liveness",
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "description": "Healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["status", "service", "version", "uptimeSeconds", "repository"],
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["ok"]
+                    },
+                    "service": {
+                      "type": "string",
+                      "examples": ["reporting-api"]
+                    },
+                    "version": {
+                      "type": "string"
+                    },
+                    "uptimeSeconds": {
+                      "type": "number"
+                    },
+                    "repository": {
+                      "type": "string",
+                      "examples": ["upstream:ledger-api"]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reports/dashboard": {
+      "get": {
+        "tags": ["Reports"],
+        "summary": "Key figures for the dashboard landing page",
+        "operationId": "getDashboard",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AsOf"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["data"],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/DashboardSummary"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamError"
+          },
+          "503": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/UpstreamTimeout"
+          }
+        }
+      }
+    },
+    "/api/reports/trial-balance": {
+      "get": {
+        "tags": ["Reports"],
+        "summary": "Trial balance as of a date",
+        "operationId": "getTrialBalance",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AsOf"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Trial balance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["data"],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/TrialBalance"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamError"
+          },
+          "503": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/UpstreamTimeout"
+          }
+        }
+      }
+    },
+    "/api/reports/income-statement": {
+      "get": {
+        "tags": ["Reports"],
+        "summary": "Revenue, expenses and net income over a period",
+        "operationId": "getIncomeStatement",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "description": "Defaults to the first day of the current month (UTC)",
+            "schema": {
+              "$ref": "#/components/schemas/IsoDate"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "Defaults to today (UTC)",
+            "schema": {
+              "$ref": "#/components/schemas/IsoDate"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Income statement",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["data"],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/IncomeStatement"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamError"
+          },
+          "503": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/UpstreamTimeout"
+          }
+        }
+      }
+    },
+    "/api/reports/balance-sheet": {
+      "get": {
+        "tags": ["Reports"],
+        "summary": "Assets, liabilities and equity at a date",
+        "operationId": "getBalanceSheet",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AsOf"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Balance sheet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["data"],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/BalanceSheet"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "502": {
+            "$ref": "#/components/responses/UpstreamError"
+          },
+          "503": {
+            "$ref": "#/components/responses/UpstreamUnavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/UpstreamTimeout"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "AsOf": {
+        "name": "asOf",
+        "in": "query",
+        "description": "Defaults to today (UTC)",
+        "schema": {
+          "$ref": "#/components/schemas/IsoDate"
+        }
+      }
+    },
+    "responses": {
+      "ValidationError": {
+        "description": "Query failed validation (code VALIDATION_ERROR)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Request did not come through Cloudflare (missing X-Origin-Secret)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "Per-IP rate limit exceeded",
+        "headers": {
+          "Retry-After": {
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Seconds until the window resets"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "UpstreamError": {
+        "description": "The ledger API answered with an error (code UPSTREAM_ERROR)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "UpstreamUnavailable": {
+        "description": "The ledger API could not be reached (code UPSTREAM_UNAVAILABLE)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "UpstreamTimeout": {
+        "description": "The ledger API did not answer within 5 s (code UPSTREAM_TIMEOUT)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "IsoDate": {
+        "type": "string",
+        "format": "date",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+        "examples": ["2026-10-02"]
+      },
+      "MinorUnits": {
+        "type": "integer",
+        "description": "Integer minor units (cents)"
+      },
+      "AccountType": {
+        "type": "string",
+        "enum": ["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"]
+      },
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {}
+            }
+          }
+        }
+      },
+      "TrialBalanceRow": {
+        "type": "object",
+        "required": ["accountId", "code", "name", "type", "debitMinor", "creditMinor", "balanceMinor"],
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/AccountType"
+          },
+          "debitMinor": {
+            "$ref": "#/components/schemas/MinorUnits"
+          },
+          "creditMinor": {
+            "$ref": "#/components/schemas/MinorUnits"
+          },
+          "balanceMinor": {
+            "$ref": "#/components/schemas/MinorUnits",
+            "description": "Signed net: debit − credit"
+          }
+        }
+      },
+      "TrialBalance": {
+        "type": "object",
+        "required": ["asOf", "rows", "totalDebitMinor", "totalCreditMinor", "balanced"],
+        "properties": {
+          "asOf": {
+            "$ref": "#/components/schemas/IsoDate"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrialBalanceRow"
+            }
+          },
+          "totalDebitMinor": {
+            "$ref": "#/components/schemas/MinorUnits"
+          },
+          "totalCreditMinor": {
+            "$ref": "#/components/schemas/MinorUnits"
+          },
+          "balanced": {
+            "type": "boolean"
+          }
+        }
+      },
+      "IncomeStatement": {
+        "type": "object",
+        "required": [
+          "from",
+          "to",
+          "revenue",
+          "expenses",
+          "totalRevenueMinor",
+          "totalExpensesMinor",
+          "netIncomeMinor"
+        ],
+        "properties": {
+          "from": {
+            "$ref": "#/components/schemas/IsoDate"
+          },
+          "to": {
+            "$ref": "#/components/schemas/IsoDate"
+          },
+          "revenue": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrialBalanceRow"
+            }
+          },
+          "expenses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrialBalanceRow"
+            }
+          },
+          "totalRevenueMinor": {
+            "$ref": "#/components/schemas/MinorUnits"
+          },
+          "totalExpensesMinor": {
+            "$ref": "#/components/schemas/MinorUnits"
+          },
+          "netIncomeMinor": {
+            "$ref": "#/components/schemas/MinorUnits"
+          }
+        }
+      },
+      "BalanceSheet": {
+        "type": "object",
+        "required": [
+          "asOf",
+          "assets",
+          "liabilities",
+          "equity",
+          "totalAssetsMinor",
+          "totalLiabilitiesMinor",
+          "totalEquityMinor",
+          "outOfBalanceMinor"
+        ],
+        "properties": {
+          "asOf": {
+            "$ref": "#/components/schemas/IsoDate"
+          },
+          "assets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrialBalanceRow"
+            }
+          },
+          "liabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrialBalanceRow"
+            }
+          },
+          "equity": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrialBalanceRow"
+            }
+          },
+          "totalAssetsMinor": {
+            "$ref": "#/components/schemas/MinorUnits"
+          },
+          "totalLiabilitiesMinor": {
+            "$ref": "#/components/schemas/MinorUnits"
+          },
+          "totalEquityMinor": {
+            "$ref": "#/components/schemas/MinorUnits"
+          },
+          "outOfBalanceMinor": {
+            "$ref": "#/components/schemas/MinorUnits",
+            "description": "Assets − (liabilities + equity); 0 for a balanced ledger"
+          }
+        }
+      },
+      "DashboardSummary": {
+        "type": "object",
+        "required": [
+          "asOf",
+          "totalAssetsMinor",
+          "totalLiabilitiesMinor",
+          "totalEquityMinor",
+          "revenueMonthToDateMinor",
+          "expensesMonthToDateMinor",
+          "netIncomeMonthToDateMinor",
+          "cashMinor",
+          "accountCount",
+          "entryCount",
+          "balanced"
+        ],
+        "properties": {
+          "asOf": {
+            "$ref": "#/components/schemas/IsoDate"
+          },
+          "totalAssetsMinor": {
+            "$ref": "#/components/schemas/MinorUnits"
+          },
+          "totalLiabilitiesMinor": {
+            "$ref": "#/components/schemas/MinorUnits"
+          },
+          "totalEquityMinor": {
+            "$ref": "#/components/schemas/MinorUnits"
+          },
+          "revenueMonthToDateMinor": {
+            "$ref": "#/components/schemas/MinorUnits"
+          },
+          "expensesMonthToDateMinor": {
+            "$ref": "#/components/schemas/MinorUnits"
+          },
+          "netIncomeMonthToDateMinor": {
+            "$ref": "#/components/schemas/MinorUnits"
+          },
+          "cashMinor": {
+            "$ref": "#/components/schemas/MinorUnits"
+          },
+          "accountCount": {
+            "type": "integer"
+          },
+          "entryCount": {
+            "type": "integer"
+          },
+          "balanced": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,995 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LedgerLab Ledger API",
+    "version": "0.1.0",
+    "description": "Double-entry ledger: accounts, journal entries, void, trial balance. Money is always an integer number of minor units (cents); a journal line's amountMinor is signed (> 0 debit, < 0 credit) and every entry's lines sum to 0. In production every request except /health must arrive through Cloudflare (X-Origin-Secret, added at the edge); /api/internal/* is for the reporting service only and is blocked at the edge."
+  },
+  "servers": [
+    {
+      "url": "https://ledgerlab-api.rizbud.com",
+      "description": "Review deployment (AWS, behind Cloudflare)"
+    },
+    {
+      "url": "http://localhost:4001",
+      "description": "Local development"
+    }
+  ],
+  "security": [],
+  "tags": [
+    {
+      "name": "Health",
+      "description": "Liveness for load balancers and uptime monitors; not behind the origin lock."
+    },
+    {
+      "name": "Accounts",
+      "description": "Chart of accounts."
+    },
+    {
+      "name": "Journal entries",
+      "description": "Double-entry postings; append-only, corrected by void."
+    },
+    {
+      "name": "Reports",
+      "description": "Read-only financial reports."
+    },
+    {
+      "name": "Internal",
+      "description": "Service-to-service; requires the internal bearer token."
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Liveness and database reachability",
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "description": "Healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage did not answer within 2 s (status \"degraded\")",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/accounts": {
+      "get": {
+        "tags": ["Accounts"],
+        "summary": "List accounts (chart of accounts)",
+        "operationId": "listAccounts",
+        "responses": {
+          "200": {
+            "description": "All accounts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountList"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      },
+      "post": {
+        "tags": ["Accounts"],
+        "summary": "Create an account",
+        "operationId": "createAccount",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAccount"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "description": "Account code already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/accounts/{id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/Id"
+        }
+      ],
+      "get": {
+        "tags": ["Accounts"],
+        "summary": "Get one account",
+        "operationId": "getAccount",
+        "responses": {
+          "200": {
+            "description": "The account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      },
+      "patch": {
+        "tags": ["Accounts"],
+        "summary": "Deactivate or reactivate an account",
+        "description": "Inactive accounts keep their history but reject new journal lines.",
+        "operationId": "updateAccount",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAccount"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/journal-entries": {
+      "get": {
+        "tags": ["Journal entries"],
+        "summary": "List journal entries, newest first",
+        "operationId": "listJournalEntries",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 25
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/EntryStatus"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "description": "Entries dated on or after (YYYY-MM-DD)",
+            "schema": {
+              "$ref": "#/components/schemas/IsoDate"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "Entries dated on or before (YYYY-MM-DD)",
+            "schema": {
+              "$ref": "#/components/schemas/IsoDate"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of entries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JournalEntryPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      },
+      "post": {
+        "tags": ["Journal entries"],
+        "summary": "Post a journal entry",
+        "description": "At least two lines, no zero amounts, lines must sum to 0, every account active, and the date after the closed period (LEDGER_CLOSED_THROUGH). The database enforces the balance rule again at commit.",
+        "operationId": "createJournalEntry",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateJournalEntry"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Posted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JournalEntryEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "A line references an unknown account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Date falls in a closed period",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "422": {
+            "description": "Debits and credits do not net to zero (code UNBALANCED_ENTRY, details.totalMinor)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/journal-entries/{id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/Id"
+        }
+      ],
+      "get": {
+        "tags": ["Journal entries"],
+        "summary": "Get one journal entry with its lines",
+        "operationId": "getJournalEntry",
+        "responses": {
+          "200": {
+            "description": "The entry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JournalEntryEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/journal-entries/{id}/void": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/Id"
+        }
+      ],
+      "post": {
+        "tags": ["Journal entries"],
+        "summary": "Void a posted entry",
+        "description": "The only legal status change is POSTED → VOID. Entries are never edited or deleted; post a new entry to correct one.",
+        "operationId": "voidJournalEntry",
+        "responses": {
+          "200": {
+            "description": "Voided",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JournalEntryEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Entry is not POSTED (already void), or its date is in a closed period",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/reports/trial-balance": {
+      "get": {
+        "tags": ["Reports"],
+        "summary": "Trial balance as of a date",
+        "operationId": "getTrialBalance",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AsOf"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Trial balance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["data"],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/TrialBalance"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/internal/account-totals": {
+      "get": {
+        "tags": ["Internal"],
+        "summary": "Per-account totals of POSTED entries in a date range",
+        "description": "Called by the reporting service over the private network. Not rate limited; blocked at the edge.",
+        "operationId": "getAccountTotals",
+        "security": [
+          {
+            "internalToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/IsoDate"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/IsoDate"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Totals",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["data"],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/AccountTotals"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "401": {
+            "description": "Missing or wrong bearer token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "internalToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "INTERNAL_API_TOKEN, shared with the reporting service"
+      }
+    },
+    "parameters": {
+      "Id": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "AsOf": {
+        "name": "asOf",
+        "in": "query",
+        "description": "Defaults to today (UTC)",
+        "schema": {
+          "$ref": "#/components/schemas/IsoDate"
+        }
+      }
+    },
+    "responses": {
+      "ValidationError": {
+        "description": "Request failed validation (code VALIDATION_ERROR; details holds the field errors)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Not found",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Request did not come through Cloudflare (missing X-Origin-Secret)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "PayloadTooLarge": {
+        "description": "Body over 64 KB",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "Per-IP rate limit exceeded",
+        "headers": {
+          "Retry-After": {
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Seconds until the window resets"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "IsoDate": {
+        "type": "string",
+        "format": "date",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+        "examples": ["2026-10-02"]
+      },
+      "MinorUnits": {
+        "type": "integer",
+        "description": "Integer minor units (cents); within ±(2^53 − 1)"
+      },
+      "AccountType": {
+        "type": "string",
+        "enum": ["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"]
+      },
+      "EntryStatus": {
+        "type": "string",
+        "enum": ["DRAFT", "POSTED", "VOID"]
+      },
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": {
+                "type": "string",
+                "examples": ["VALIDATION_ERROR", "NOT_FOUND", "CONFLICT", "UNBALANCED_ENTRY", "RATE_LIMITED"]
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {}
+            }
+          }
+        }
+      },
+      "Health": {
+        "type": "object",
+        "required": ["status", "service", "version", "uptimeSeconds", "repository"],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["ok", "degraded"]
+          },
+          "service": {
+            "type": "string",
+            "examples": ["ledger-api"]
+          },
+          "version": {
+            "type": "string"
+          },
+          "uptimeSeconds": {
+            "type": "number"
+          },
+          "repository": {
+            "type": "string",
+            "enum": ["memory", "postgres"]
+          }
+        }
+      },
+      "Account": {
+        "type": "object",
+        "required": ["id", "code", "name", "type", "currency", "isActive", "createdAt"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^[0-9]{4}$",
+            "examples": ["1000"]
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "examples": ["Cash"]
+          },
+          "type": {
+            "$ref": "#/components/schemas/AccountType"
+          },
+          "currency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3,
+            "examples": ["USD"]
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AccountEnvelope": {
+        "type": "object",
+        "required": ["data"],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Account"
+          }
+        }
+      },
+      "AccountList": {
+        "type": "object",
+        "required": ["data"],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Account"
+            }
+          }
+        }
+      },
+      "CreateAccount": {
+        "type": "object",
+        "required": ["code", "name", "type"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^[0-9]{4}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "type": {
+            "$ref": "#/components/schemas/AccountType"
+          },
+          "currency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3,
+            "default": "USD"
+          }
+        }
+      },
+      "UpdateAccount": {
+        "type": "object",
+        "required": ["isActive"],
+        "additionalProperties": false,
+        "properties": {
+          "isActive": {
+            "type": "boolean"
+          }
+        }
+      },
+      "JournalLine": {
+        "type": "object",
+        "required": ["id", "entryId", "accountId", "amountMinor"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "entryId": {
+            "type": "string"
+          },
+          "accountId": {
+            "type": "string"
+          },
+          "accountCode": {
+            "type": "string"
+          },
+          "accountName": {
+            "type": "string"
+          },
+          "amountMinor": {
+            "$ref": "#/components/schemas/MinorUnits",
+            "description": "Signed: > 0 debit, < 0 credit, never 0"
+          },
+          "memo": {
+            "type": "string",
+            "maxLength": 200
+          }
+        }
+      },
+      "JournalEntry": {
+        "type": "object",
+        "required": ["id", "date", "memo", "status", "lines", "createdAt"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "date": {
+            "$ref": "#/components/schemas/IsoDate"
+          },
+          "memo": {
+            "type": "string",
+            "maxLength": 280
+          },
+          "reference": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "status": {
+            "$ref": "#/components/schemas/EntryStatus"
+          },
+          "lines": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "$ref": "#/components/schemas/JournalLine"
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "JournalEntryEnvelope": {
+        "type": "object",
+        "required": ["data"],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/JournalEntry"
+          }
+        }
+      },
+      "JournalEntryPage": {
+        "type": "object",
+        "required": ["data", "page", "pageSize", "total"],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JournalEntry"
+            }
+          },
+          "page": {
+            "type": "integer"
+          },
+          "pageSize": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          }
+        }
+      },
+      "CreateJournalEntry": {
+        "type": "object",
+        "required": ["date", "memo", "lines"],
+        "properties": {
+          "date": {
+            "$ref": "#/components/schemas/IsoDate"
+          },
+          "memo": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 280
+          },
+          "reference": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "lines": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "object",
+              "required": ["accountId", "amountMinor"],
+              "properties": {
+                "accountId": {
+                  "type": "string"
+                },
+                "amountMinor": {
+                  "$ref": "#/components/schemas/MinorUnits"
+                },
+                "memo": {
+                  "type": "string",
+                  "maxLength": 200
+                }
+              }
+            }
+          }
+        },
+        "examples": [
+          {
+            "date": "2026-10-02",
+            "memo": "Office rent - monthly",
+            "reference": "RENT-OCT",
+            "lines": [
+              {
+                "accountId": "<rent expense account id>",
+                "amountMinor": 120000
+              },
+              {
+                "accountId": "<cash account id>",
+                "amountMinor": -120000
+              }
+            ]
+          }
+        ]
+      },
+      "TrialBalanceRow": {
+        "type": "object",
+        "required": ["accountId", "code", "name", "type", "debitMinor", "creditMinor", "balanceMinor"],
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/AccountType"
+          },
+          "debitMinor": {
+            "$ref": "#/components/schemas/MinorUnits"
+          },
+          "creditMinor": {
+            "$ref": "#/components/schemas/MinorUnits"
+          },
+          "balanceMinor": {
+            "$ref": "#/components/schemas/MinorUnits",
+            "description": "Signed net: debit − credit"
+          }
+        }
+      },
+      "TrialBalance": {
+        "type": "object",
+        "required": ["asOf", "rows", "totalDebitMinor", "totalCreditMinor", "balanced"],
+        "properties": {
+          "asOf": {
+            "$ref": "#/components/schemas/IsoDate"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrialBalanceRow"
+            }
+          },
+          "totalDebitMinor": {
+            "$ref": "#/components/schemas/MinorUnits"
+          },
+          "totalCreditMinor": {
+            "$ref": "#/components/schemas/MinorUnits"
+          },
+          "balanced": {
+            "type": "boolean",
+            "description": "totalDebit === totalCredit"
+          }
+        }
+      },
+      "AccountTotals": {
+        "type": "object",
+        "required": ["rows", "entryCount"],
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrialBalanceRow"
+            }
+          },
+          "entryCount": {
+            "type": "integer",
+            "description": "Distinct POSTED entries in the range"
+          }
+        }
+      }
+    }
+  }
+}

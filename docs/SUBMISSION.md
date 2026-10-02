@@ -69,6 +69,11 @@ header ([evidence](evidence/G6-cloudflare.md)).
 - **G10, next phase** (`45b091e`): the 13-week plan.
 - **Ledger CSV export** (extra credit): every entry matching the filters, one row per
   line, signed decimal amounts, guarded against spreadsheet formula injection.
+- **OpenAPI 3.1 specs** (extra credit): [`apps/ledger-api/openapi.json`](../apps/ledger-api/openapi.json)
+  and [`apps/reporting-api/openapi.json`](../apps/reporting-api/openapi.json), with
+  request schemas, every error status the code returns, and the internal bearer
+  token. A test in each app fails if the spec and the served routes differ or a
+  `$ref` dangles; both pass `redocly lint`.
 - **Zero-line entries** (`0005_entry_needs_lines.sql`): found by `ledger-architect`;
   the database now refuses an entry that commits without two balanced lines.
 - **Daily balance rollups** (after G10): reports read trigger-maintained daily
