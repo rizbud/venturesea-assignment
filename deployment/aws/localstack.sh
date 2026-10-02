@@ -22,4 +22,15 @@ if ! command -v aws >/dev/null; then
 fi
 
 pnpm --filter @ledgerlab/infra-aws exec cdk bootstrap "aws://000000000000/$AWS_REGION" -c region="$AWS_REGION"
-exec deployment/aws/deploy.sh
+deployment/aws/deploy.sh
+
+# LocalStack accepts the Service Connect config but does not provide the
+# `ledger-api` name to other tasks. Stand in for it with a Docker network alias
+# on the ledger containers (what Service Connect does on AWS). Rehearsal only:
+# the stacks are unchanged. Re-run after anything restarts a ledger task.
+echo "==> emulating Service Connect: ledger-api alias"
+for c in $(docker ps --format '{{.Names}} {{.Image}}' | awk '/ledgerlab\/ledger-api:/ {print $1}'); do
+  net=$(docker inspect "$c" --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}')
+  docker network disconnect "$net" "$c"
+  docker network connect --alias ledger-api "$net" "$c"
+done
