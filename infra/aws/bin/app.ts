@@ -4,7 +4,7 @@ import { GithubDeployStack, LedgerLabStack, RegistryStack } from "../lib/stacks"
 // Usage (see deployment/aws/README.md; deploy.sh runs these in order):
 //   cdk deploy LedgerLabGithub            (once, from a signed-in machine)
 //   cdk deploy LedgerLabRegistry
-//   cdk deploy LedgerLab -c domainName=ledgerlab.example.com -c imageTag=<git sha> [-c tasksPerService=0]
+//   cdk deploy LedgerLab -c domainName=ledgerlab.example.com -c imageTag=<git sha> [-c tasksPerService=0] [-c review=true]
 const app = new App();
 const env = {
   account: process.env.CDK_DEFAULT_ACCOUNT,
@@ -23,6 +23,10 @@ if (domainName) {
     domainName,
     imageTag,
     tasksPerService: Number(app.node.tryGetContext("tasksPerService") ?? 2),
-    multiAz: String(app.node.tryGetContext("multiAz") ?? "true") !== "false",
+    review: String(app.node.tryGetContext("review")) === "true",
+    multiAz:
+      app.node.tryGetContext("multiAz") === undefined
+        ? undefined
+        : String(app.node.tryGetContext("multiAz")) !== "false",
   });
 }

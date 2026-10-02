@@ -58,7 +58,7 @@ admits nothing but Cloudflare.
    - **Secrets and variables → Actions → Variables** (repository variables):
      `AWS_DEPLOY_ROLE_ARN` = the `DeployRoleArn` output of step 4,
      `DOMAIN` = e.g. `ledgerlab.example.com`, and optionally `AWS_REGION`
-     (default `ap-southeast-3`). None of these is a secret.
+     (default `ap-southeast-3`) and `REVIEW` (see below). None of these is a secret.
 6. The domain added to Cloudflare (nameservers switched at the registrar).
 
 ## Deploy
@@ -79,6 +79,23 @@ the `ledgerlab_app` role, and the script scales every service to 2 tasks.
 **Every run after that:** build → push (git SHA tag) → migration task with the
 new image (a failure stops here; nothing changes) → rolling update of the three
 services, automatically rolled back if the new tasks do not turn healthy.
+
+## Review deployment (`REVIEW=true`)
+
+For a short-lived deployment that is torn down after review. Same services,
+2 tasks each, same private subnets; three cost cuts:
+
+| Setting     | Production      | Review                                                      |
+| ----------- | --------------- | ----------------------------------------------------------- |
+| Egress      | NAT gateway     | one `t4g.nano` NAT instance, inbound from the VPC CIDR only |
+| RDS         | Multi-AZ        | single-AZ, deletion protection off (snapshot on delete)     |
+| ledger task | 0.5 vCPU / 1 GB | 0.25 vCPU / 0.5 GB                                          |
+
+Set the repository variable `REVIEW=true` (or `REVIEW=true deployment/aws/deploy.sh`).
+**Go live:** delete the variable and run Deploy again; CDK replaces the NAT
+instance with a gateway and converts RDS to Multi-AZ in place.
+**Tear down:** `pnpm --filter @ledgerlab/infra-aws exec cdk destroy LedgerLab -c domainName=<domain> -c imageTag=x -c review=true`,
+then delete the final RDS snapshot and the ECR images if you no longer need them.
 
 ## Cloudflare (after the first deploy)
 

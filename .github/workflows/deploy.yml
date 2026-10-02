@@ -46,4 +46,5 @@ jobs:
       - name: Deploy
         env:
           DOMAIN: ${{ vars.DOMAIN }}
+          REVIEW: ${{ vars.REVIEW }}
         run: deployment/aws/deploy.sh

@@ -18,7 +18,8 @@ REGION="${AWS_REGION:-ap-southeast-3}"
 git diff --quiet HEAD || { echo "uncommitted changes: commit first, images are tagged with the git SHA" >&2; exit 1; }
 TAG=$(git rev-parse --short HEAD)
 export AWS_REGION="$REGION" CDK_DISABLE_VERSION_CHECK=1
-cdk() { pnpm --filter @ledgerlab/infra-aws exec cdk "$@" --require-approval never -c region="$REGION"; }
+# REVIEW=true: short-lived review stack (NAT instance, single-AZ DB); see README.
+cdk() { pnpm --filter @ledgerlab/infra-aws exec cdk "$@" --require-approval never -c region="$REGION" -c review="${REVIEW:-false}"; }
 output() {
   aws cloudformation describe-stacks --stack-name LedgerLab \
     --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text

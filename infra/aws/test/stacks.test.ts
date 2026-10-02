@@ -4,7 +4,7 @@ import { Match, Template } from "aws-cdk-lib/assertions";
 import { CLOUDFLARE_IPV4, GithubDeployStack, LedgerLabStack, RegistryStack } from "../lib/stacks";
 
 const env = { account: "111111111111", region: "ap-southeast-3" };
-const synth = (props: { tasksPerService?: number; multiAz?: boolean } = {}) =>
+const synth = (props: { tasksPerService?: number; multiAz?: boolean; review?: boolean } = {}) =>
   Template.fromStack(
     new LedgerLabStack(new App(), "LedgerLab", {
       env,
@@ -34,6 +34,30 @@ describe("LedgerLab stack", () => {
       MinCapacity: 2,
       MaxCapacity: 6,
     });
+  });
+
+  it("production egress is a NAT gateway; review swaps in one locked-down NAT instance", () => {
+    template.resourceCountIs("AWS::EC2::NatGateway", 1);
+    template.resourceCountIs("AWS::EC2::Instance", 0);
+
+    const review = synth({ review: true });
+    review.resourceCountIs("AWS::EC2::NatGateway", 0);
+    review.hasResourceProperties("AWS::EC2::Instance", { InstanceType: "t4g.nano", SourceDestCheck: false });
+    review.hasResourceProperties("AWS::RDS::DBInstance", { MultiAZ: false, DeletionProtection: false });
+    review.hasResourceProperties("AWS::ECS::TaskDefinition", {
+      Cpu: "256",
+      Memory: "512",
+      Family: Match.stringLikeRegexp("ledgerapi"),
+    });
+    const natGroup = Object.values(
+      review.findResources("AWS::EC2::SecurityGroup", {
+        Properties: { GroupDescription: "Security Group for NAT instances" },
+      }),
+    )[0]!;
+    // Never open to the internet: inbound only from the VPC CIDR.
+    const ingress = (natGroup.Properties.SecurityGroupIngress ?? []) as { CidrIp: unknown }[];
+    expect(ingress).toHaveLength(1);
+    expect(ingress[0]!.CidrIp).not.toBe("0.0.0.0/0");
   });
 
   it("first deploy (tasksPerService=0) starts nothing until the migration has run", () => {
