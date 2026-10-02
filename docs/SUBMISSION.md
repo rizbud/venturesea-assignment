@@ -51,12 +51,16 @@ The origin side is built and tested, and the exact configuration is in
   Multi-AZ; Cloudflare-only ALB; Secrets Manager); GitHub Actions deploy via OIDC (`deploy.sh`); the
   app reads `PG*` variables, the migration step creates the app role, and the
   rate limiter can key on `CF-Connecting-IP`.
-- **G8, sub-agents** (`bc49d77`): six agents; three demonstrated; they caught
-  a broken CI job and three other gaps (below).
+- **G8, sub-agents** (`bc49d77`): six agents, all demonstrated; they caught
+  a broken CI job, a zero-line entry hole and three other gaps (below).
 - **G9, infrastructure** (`eec6a29`, `42cfc2a`): plan, restore drill, capacity
   measurements at one year of history, region/plan fixes in the blueprint,
   `shm_size` fix, source map no longer published.
 - **G10, next phase** (`45b091e`): the 13-week plan.
+- **Ledger CSV export** (extra credit): every entry matching the filters, one row per
+  line, signed decimal amounts, guarded against spreadsheet formula injection.
+- **Zero-line entries** (`0005_entry_needs_lines.sql`): found by `ledger-architect`;
+  the database now refuses an entry that commits without two balanced lines.
 - **Daily balance rollups** (after G10): reports read trigger-maintained daily
   totals instead of every line; 4.8 → 342 req/s at one year of history; a drift
   view that must stay empty; a concurrency test that caught a deadlock.
@@ -195,7 +199,7 @@ frame-ancestors 'none'`, `x-content-type-options: nosniff`,
 
 ## AI usage
 
-- **Entries in `docs/ai/prompt-log.jsonl`:** 28 (24 accepted, 1 edited, 1 rejected,
+- **Entries in `docs/ai/prompt-log.jsonl`:** 35 (29 accepted, 2 edited, 2 rejected,
   2 reverted).
 - **A prompt I rejected and why:** switching the default currency to IDR
   (proposed after "why using $ and not Rp?"). The developer kept USD; nothing
@@ -213,9 +217,9 @@ frame-ancestors 'none'`, `x-content-type-options: nosniff`,
 | `deploy-security`    | `.opencode/agent/deploy-security.md`    | Reviewed deploy/security; found the broken CI boot step, an undocumented env var, a broken rehearsal command, and a missing shutdown watchdog |
 | `reporting-verifier` | `.opencode/agent/reporting-verifier.md` | Recomputed TB, IS and BS from raw lines; tied out to the cent, including as-of, next-day and void edges                                       |
 | `test-runner`        | `.opencode/agent/test-runner.md`        | Ran every gate; reported the Postgres tests as skipped, not green; found the no-op `lint` gate                                                |
-| `ledger-architect`   | `.opencode/agent/ledger-architect.md`   | Defined; first job is reviewing the rollup migration (M1)                                                                                     |
-| `db-migrator`        | `.opencode/agent/db-migrator.md`        | Defined; first job is writing the rollup migration (M1)                                                                                       |
-| `ui-unslop`          | `.opencode/agent/ui-unslop.md`          | Defined, carrying the G2 lessons; not yet exercised                                                                                           |
+| `ledger-architect`   | `.opencode/agent/ledger-architect.md`   | Reviewed the rollup migration: rollups safe, but an entry with zero lines could commit; fixed by `0005_entry_needs_lines.sql`                 |
+| `db-migrator`        | `.opencode/agent/db-migrator.md`        | Idempotency audit; cited files that do not exist, so its output was rejected and its prompt tightened                                         |
+| `ui-unslop`          | `.opencode/agent/ui-unslop.md`          | Built the ledger CSV export to the design rules; three defects fixed in review                                                                |
 
 - **Defect a sub-agent caught:** `deploy-security` found that the CI `images`
   job boots the API with `NODE_ENV=production` but without `CORS_ORIGINS` and
@@ -225,15 +229,15 @@ frame-ancestors 'none'`, `x-content-type-options: nosniff`,
 
 ## Verification
 
-Run on 2026-10-01 with `TEST_DATABASE_URL` pointing at Postgres 16
+Run on 2026-10-02 with `TEST_DATABASE_URL` pointing at Postgres 16
 (`docker compose up -d db`), migrations applied twice:
 
 ```
 pnpm format:check   # PASS
 pnpm typecheck      # PASS (7/7)
-pnpm test           # PASS: 111 tests (shared 30, reporting 9, ledger 63 incl. Postgres, infra-aws 9), 0 skipped
+pnpm test           # PASS: 112 tests (shared 30, reporting 9, ledger 64 incl. Postgres, infra-aws 9), 0 skipped
 pnpm build          # PASS
-pnpm ai:verify      # PASS (31 entries)
+pnpm ai:verify      # PASS (35 entries)
 ```
 
 ## What I skipped and why
@@ -248,7 +252,6 @@ pnpm ai:verify      # PASS (31 entries)
   and after) is documented, but it cannot be built blind.
 - **Currency display:** amounts render as USD by decision; per-account currency
   and mixed-currency report guards are deferred.
-- **Three of six sub-agents** have no demo run yet.
 
 ## If I had more time
 

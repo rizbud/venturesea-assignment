@@ -1,6 +1,6 @@
 import { Fragment, useState } from "react";
 import { Link } from "react-router-dom";
-import type { EntryStatus } from "@ledgerlab/shared";
+import type { EntryStatus, JournalEntry } from "@ledgerlab/shared";
 import {
   Button,
   Card,
@@ -22,9 +22,45 @@ import { Async } from "../components/states";
 import { EntryStatusBadge } from "../components/EntryStatusBadge";
 import { api } from "../lib/api";
 import { useAsync } from "../lib/useAsync";
-import { entryAmount, formatDate, money } from "../lib/format";
+import { entryAmount, formatDate, minor, money } from "../lib/format";
 
 const PAGE_SIZE = 20;
+
+const CSV_HEADER = ["date", "reference", "status", "memo", "account_code", "account_name", "amount"];
+
+// Quoted, with a leading ' on text that a spreadsheet would run as a formula.
+function csvField(value: string): string {
+  const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  return `"${safe.replace(/"/g, '""')}"`;
+}
+
+function downloadEntriesCsv(entries: readonly JournalEntry[]): void {
+  const rows = entries.flatMap((entry) =>
+    entry.lines.map((line) =>
+      [
+        ...[
+          entry.date,
+          entry.reference ?? "",
+          entry.status,
+          entry.memo,
+          line.accountCode ?? "",
+          line.accountName ?? line.accountId,
+        ].map(csvField),
+        // Signed decimal from integer minor units; never escaped, a credit starts with "-".
+        `"${minor(line.amountMinor)}"`,
+      ].join(","),
+    ),
+  );
+  const csv = [CSV_HEADER.map(csvField).join(","), ...rows].join("\r\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "ledger.csv";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
 
 interface Filters {
   status: "" | EntryStatus;
@@ -40,6 +76,7 @@ export function LedgerPage() {
   const [expanded, setExpanded] = useState<string | undefined>(undefined);
   const [busyId, setBusyId] = useState<string | undefined>(undefined);
   const [actionError, setActionError] = useState<string | undefined>(undefined);
+  const [exporting, setExporting] = useState(false);
 
   const rangeInvalid = Boolean(filters.from && filters.to && filters.from > filters.to);
   const filtered = filters.status !== "" || filters.from !== "" || filters.to !== "";
@@ -60,6 +97,31 @@ export function LedgerPage() {
   function updateFilters(patch: Partial<Filters>) {
     setFilters((current) => ({ ...current, ...patch }));
     setPage(1);
+  }
+
+  // Every entry matching the filters, not just this page (the API caps a page at 200).
+  async function exportCsv() {
+    setActionError(undefined);
+    setExporting(true);
+    try {
+      const all: JournalEntry[] = [];
+      for (let p = 1; ; p++) {
+        const result = await api.ledger.listJournalEntries({
+          page: p,
+          pageSize: 200,
+          status: filters.status || undefined,
+          from: filters.from || undefined,
+          to: filters.to || undefined,
+        });
+        all.push(...result.data);
+        if (result.data.length === 0 || all.length >= result.total) break;
+      }
+      downloadEntriesCsv(all);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "The export failed.");
+    } finally {
+      setExporting(false);
+    }
   }
 
   async function voidEntry(id: string, memo: string) {
@@ -86,9 +148,18 @@ export function LedgerPage() {
         title="General ledger"
         description="Journal entries, newest first."
         actions={
-          <Link to="/ledger/new" className={buttonClasses({ variant: "primary" })}>
-            New journal entry
-          </Link>
+          <>
+            <Button
+              variant="secondary"
+              disabled={exporting || data === undefined || data.data.length === 0}
+              onClick={() => void exportCsv()}
+            >
+              {exporting ? "Exporting…" : "Export CSV"}
+            </Button>
+            <Link to="/ledger/new" className={buttonClasses({ variant: "primary" })}>
+              New journal entry
+            </Link>
+          </>
         }
       />
 

@@ -120,9 +120,65 @@ The main agent then ran every gate with Postgres (`docker compose up -d db`,
 Postgres contract and least-privilege role tests), challenges 4/4, build PASS,
 ai:verify PASS.
 
-## Not yet exercised
+## Demos 4 to 6: the other three, run in parallel (2026-10-02)
 
-`ledger-architect`, `db-migrator` and `ui-unslop` load (`opencode agent list`)
-but have no logged demo run. Their first real job is milestone 1 of the next
-phase: `db-migrator` writes the balance-rollup migration, `ledger-architect`
-reviews it, and `reporting-verifier` proves rollups equal raw sums.
+The first three demos were open-ended ("review the deploy posture") and one
+took 20 minutes. These three were given one file set and one question each,
+launched at the same time with `opencode run` under a 12-minute `timeout`, and
+all finished in **7.5 minutes wall clock** (02:07 to 02:15 UTC).
+
+### Demo 4: `ledger-architect` found a hole in the database invariants
+
+Prompt: review `0004_balance_rollups.sql` with the triggers it depends on in
+`0002_integrity.sql`, read files only. (1) Can any insert, void or concurrent
+post leave the rollups out of step with the raw lines? (2) Can an unbalanced or
+rewritten `POSTED` entry still commit? Cite file:line.
+
+Verdict: rollups **SAFE**; posted integrity **VULNERABLE**.
+
+| Finding                                                                                                                                   | Verified how                                                         | Real?                                                                         | Action                                                                                                                         |
+| ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| A `journal_entries` row inserted with **no lines** commits: the deferred balance check fires only on a `journal_lines` insert (`0002:43`) | Read the trigger; the new test below failed with the trigger dropped | Yes. The API rejects it, but the database is meant to hold the rule by itself | `0005_entry_needs_lines.sql`: a deferred constraint trigger on the entry side; test "rejects an entry with no lines at commit" |
+| Race safety rests on one global advisory lock; a future writer that skips it loses updates                                                | Read `0004:61,81`                                                    | Yes, already recorded as the 10x limit in the infrastructure plan             | none                                                                                                                           |
+| The entry-update guard lists allowed columns by hand (`0002:57`); a new column would be silently mutable                                  | Read                                                                 | Yes, latent                                                                   | note for the next schema change                                                                                                |
+| Closed periods are enforced in the app only                                                                                               | Known                                                                | Yes, by design (configurable date)                                            | none                                                                                                                           |
+
+It also listed what it could not verify (isolation level, owner-role access in
+production), which is the honest answer from a read-only run.
+
+### Demo 5: `db-migrator` fabricated, and was caught
+
+Prompt: read-only. Are migrations `0000` to `0004` idempotent when re-applied on
+every deploy? Does `schema.ts` match the SQL for the three ledger tables?
+
+The sub-agent's report cited files that do not exist (`0001_accounts.sql`,
+`0002_journal.sql`) and `uuid` columns the schema does not have. The
+dispatching opencode agent noticed the mismatch, read the five real files and
+returned its own audit: idempotent, schema matches, every guard cited by line.
+I spot-checked the citations against the files, and migrations ran twice
+against Postgres 16 with no error. **Decision: the sub-agent's output was
+rejected**; the parent's corrected audit was kept. Lesson: a reviewer's
+citations get checked before its conclusions are believed. The agent's method
+now says to list the migrations first and quote every line it cites.
+
+### Demo 6: `ui-unslop` built the CSV export, with three defects
+
+Prompt: add an "Export CSV" text button to the ledger page that downloads the
+entries currently shown after filters, one row per line, amounts from `minor()`,
+every field quoted, no new dependency; typecheck once.
+
+It followed the design rules (a secondary `Button`, no icon, no colour added,
+the forbidden-pattern grep came back empty) and typechecked. Reviewed by hand,
+three defects:
+
+1. It exported `data.data`, **the current page of 20**, but the API paginates on
+   the server. Fixed: walk every page at 200 (the API's maximum) with the same
+   filters.
+2. A missing account code became `"----"`, an invented value. Fixed: empty.
+3. A memo such as `=HYPERLINK(...)` would run as a formula in Excel (CSV
+   injection). Fixed: text fields that start with `= + - @` get a leading `'`;
+   the amount column is exempt so credits keep their minus sign.
+
+Verified in the browser against the in-memory API with 210 entries: 420 CSV
+rows (two lines each, across two API pages), `'=HYPERLINK` neutralised,
+credits as `"-10.50"`.

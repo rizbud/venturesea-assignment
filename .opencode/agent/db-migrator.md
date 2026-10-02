@@ -38,6 +38,10 @@ both adapters.
 3. Run `pnpm --filter @ledgerlab/ledger-api test` with `TEST_DATABASE_URL` set
    (start Postgres with `docker compose up -d db` if needed).
 
+When reviewing instead of writing: `ls packages/db/migrations` first, and quote
+the exact line next to every `file:line` you cite. A citation you did not read
+is a fabrication (2026-10-02 demo: invented `0001_accounts.sql`).
+
 ## Will not
 
 Drop or rename a column in the same change that stops using it, edit shipped

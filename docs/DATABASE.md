@@ -102,14 +102,14 @@ No `REAL`/`FLOAT`/`DOUBLE` column may ever hold money.
 The app checks these first, but Postgres enforces them too, so a hotfix script,
 a future service, or a bug in an adapter cannot corrupt the books:
 
-| Invariant                                  | Mechanism                                      |
-| ------------------------------------------ | ---------------------------------------------- |
-| Every entry's lines sum to 0, at least two | Deferred constraint trigger, checked at commit |
-| No zero-amount line                        | `CHECK (amount_minor <> 0)`                    |
-| `entry_date` is a real day                 | `DATE` column (rejects `2026-02-31`)           |
-| Lines are never edited or deleted          | `BEFORE UPDATE OR DELETE` trigger raises       |
-| Entries are never deleted                  | `BEFORE DELETE` trigger raises                 |
-| Only `POSTED → VOID`; nothing else changes | `BEFORE UPDATE` trigger on `journal_entries`   |
+| Invariant                                  | Mechanism                                                                                                |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| Every entry's lines sum to 0, at least two | Deferred constraint triggers on lines and on entries (`0005`: an entry with no lines), checked at commit |
+| No zero-amount line                        | `CHECK (amount_minor <> 0)`                                                                              |
+| `entry_date` is a real day                 | `DATE` column (rejects `2026-02-31`)                                                                     |
+| Lines are never edited or deleted          | `BEFORE UPDATE OR DELETE` trigger raises                                                                 |
+| Entries are never deleted                  | `BEFORE DELETE` trigger raises                                                                           |
+| Only `POSTED → VOID`; nothing else changes | `BEFORE UPDATE` trigger on `journal_entries`                                                             |
 
 Corrections are made the accounting way: void the entry and post a new one.
 `TRUNCATE` bypasses row triggers; only the schema owner can run it, and the

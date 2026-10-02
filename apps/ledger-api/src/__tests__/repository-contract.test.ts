@@ -310,6 +310,14 @@ describe.skipIf(!pg)("Postgres enforces the invariants itself (bypassing the app
     expect(await pg!.sql`SELECT 1 FROM journal_entries WHERE id = 'je_raw'`).toHaveLength(0);
   });
 
+  it("rejects an entry with no lines at commit", async () => {
+    await expect(
+      pg!
+        .sql`INSERT INTO journal_entries (id, entry_date, memo) VALUES ('je_empty', '2026-03-02', 'no lines')`,
+    ).rejects.toThrow(/unbalanced/);
+    expect(await pg!.sql`SELECT 1 FROM journal_entries WHERE id = 'je_empty'`).toHaveLength(0);
+  });
+
   it("refuses to edit or delete posted lines", async () => {
     await expect(pg!.sql`UPDATE journal_lines SET amount_minor = 999 WHERE id = ${lineId}`).rejects.toThrow(
       /append-only/,
