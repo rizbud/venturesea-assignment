@@ -27,9 +27,10 @@ routing, the origin lock, posting and every report (Service Connect stood in for
 by a Docker alias, since LocalStack does not provide it). Availability and network
 rules were left to the real deploy ([evidence](evidence/localstack-rehearsal.md)).
 
-**Cloudflare / custom domain:** not attempted (no domain or Cloudflare account).
-The origin side is built and tested, and the exact configuration is in
-[`deployment/cloudflare/README.md`](../deployment/cloudflare/README.md).
+**Cloudflare / custom domain:** live on `rizbud.com` (Free plan): proxied DNS,
+Full (strict), HTTP → HTTPS redirect, `/api/internal/*` and unused methods
+blocked at the edge, a rate limit on `/api/`, cache rules and the origin-secret
+header ([evidence](evidence/G6-cloudflare.md)).
 
 ## What I changed
 
@@ -153,16 +154,22 @@ frame-ancestors 'none'`, `x-content-type-options: nosniff`,
 
 ## Cloudflare + TLD (bonus)
 
-- **Domain:** not attempted.
-- **`dig +short` output:** n/a.
-- **TLS mode:** Full (strict) is specified in the runbook; not applied.
+- **Domain:** `rizbud.com` (Cloudflare Free plan); app on `ledgerlab`,
+  `ledgerlab-api` and `ledgerlab-reports`.
+- **`dig +short` output:** `172.67.190.205 104.21.20.14` for all three hosts
+  (Cloudflare anycast).
+- **TLS mode:** Full (strict); edge certificate `CN=rizbud.com` (Google Trust
+  Services), ACM certificate at the ALB; HTTP redirected to HTTPS at the edge.
 - **WAF rule and rate-limit rule:**
-  `(http.host eq "ledgerlab-api.example.com" and starts_with(http.request.uri.path, "/api/internal/"))`
-  → Block; rate limit on `starts_with(http.request.uri.path, "/api/")`, 50 per
-  10 s per IP.
-- **`/api/internal/*` blocked at edge:** configured, not live; the origin lock
-  (`requireOriginSecret`) is implemented and tested.
-- **Cache rules:** `/assets/*` cached for a year (hashed names); API hosts bypass.
+  `(http.host eq "ledgerlab-api.rizbud.com" and starts_with(http.request.uri.path, "/api/internal/"))`
+  → Block (custom rule, free plan); rate limit on URI path starting `/api/`,
+  50 per 10 s per IP: a 100-request burst returned 23 × 200 and 77 × 429.
+- **`/api/internal/*` blocked at edge:** `403` from Cloudflare; the origin lock
+  (`requireOriginSecret`) and the ALB's Cloudflare-only security group stop
+  anything that bypasses the edge.
+- **Cache rules:** `/assets/*` cached for a year (`MISS` then `HIT`); API hosts
+  bypass (`DYNAMIC`).
+- **Evidence:** [`evidence/G6-cloudflare.md`](evidence/G6-cloudflare.md).
 
 ## Infrastructure plan (G9)
 

@@ -1,10 +1,13 @@
 # Cloudflare layer (G6, scored bonus): custom domain, TLS, WAF, rate limit
 
-> **Status (2026-10-01): not attempted.** It needs a domain on a real TLD and a
-> Cloudflare account, neither of which was available. Everything the origin
-> needs is already built and tested (origin lock, headers, rate limit, internal
-> token); the steps below are the exact configuration to apply. About 30 minutes
-> once the Render deploy (G4) exists.
+> **Status (2026-10-02): live** on `rizbud.com` (Free plan) in front of the AWS
+> deploy; configuration and verification in
+> [`docs/evidence/G6-cloudflare.md`](../../docs/evidence/G6-cloudflare.md).
+> The steps below are written for the Render origin; for AWS, use the hostnames
+> and origin notes in [`../aws/README.md`](../aws/README.md#cloudflare-after-the-first-deploy).
+> Free plan limits: managed rulesets beyond the Free Managed Ruleset need a paid
+> plan, and the rate limiting rule accepts only a URI path expression with a
+> 10 s period.
 
 The bank asked for HTTPS on a domain it recognises, a WAF, rate limiting and
 `/api/internal` unreachable from the internet. This layer delivers all four.
