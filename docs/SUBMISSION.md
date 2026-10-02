@@ -6,21 +6,26 @@
 
 ## Deployed URLs
 
-| Surface       | URL                                                         | `/health` |
-| ------------- | ----------------------------------------------------------- | --------- |
-| Dashboard     | Not deployed: no AWS account or domain on the build machine | —         |
-| Ledger API    | Not deployed (same reason)                                  | —         |
-| Reporting API | Not deployed (same reason)                                  | —         |
+| Surface       | URL                                  | `/health` |
+| ------------- | ------------------------------------ | --------- |
+| Dashboard     | https://ledgerlab.rizbud.com         | —         |
+| Ledger API    | https://ledgerlab-api.rizbud.com     | `200`     |
+| Reporting API | https://ledgerlab-reports.rizbud.com | `200`     |
 
-The production shape is rehearsed locally with the exact images and rules
+Live on AWS ECS Fargate in Jakarta since 2026-10-02, deployed by the GitHub
+Actions Deploy workflow in the review configuration (`REVIEW=true`: NAT
+instance, single-AZ database), 2 tasks per service across two availability
+zones ([evidence](evidence/G4-aws-deploy.md)). The real deploy found seven
+problems the rehearsals could not (six fixed in code, one a first-use account
+quirk); they are listed in the evidence.
+
+Before that, the production shape was rehearsed locally with the exact images and rules
 (`deployment/docker-compose.prod.yml`, [G4 evidence](evidence/G4-deploy-rehearsal.md)).
 The AWS deploy itself (`deploy.sh` and the CDK stacks) ran end to end on LocalStack:
 first deploy and update, ECS tasks from ECR images, RDS, the ALB with host
 routing, the origin lock, posting and every report (Service Connect stood in for
 by a Docker alias, since LocalStack does not provide it). Availability and network
-rules are left to the real deploy ([evidence](evidence/localstack-rehearsal.md)). The AWS stacks (`infra/aws`, CDK, tested) are deployed by GitHub Actions
-(`.github/workflows/deploy.yml`) once an AWS account and domain exist. No URL here is
-invented.
+rules were left to the real deploy ([evidence](evidence/localstack-rehearsal.md)).
 
 **Cloudflare / custom domain:** not attempted (no domain or Cloudflare account).
 The origin side is built and tested, and the exact configuration is in

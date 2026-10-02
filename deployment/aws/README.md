@@ -8,8 +8,9 @@ rolls out. Nothing deploys automatically. AWS access is OIDC: no AWS keys in Git
 > **Status (2026-10-02):** the stacks synthesize and are covered by assertion
 > tests (`pnpm --filter @ledgerlab/infra-aws test`), and `deploy.sh` has run end
 > to end against LocalStack (`deployment/aws/localstack.sh`,
-> [evidence](../../docs/evidence/localstack-rehearsal.md)). Not deployed to a real
-> account yet: that needs an AWS account, a domain and Cloudflare.
+> [evidence](../../docs/evidence/localstack-rehearsal.md)). **Live since 2026-10-02**
+> in the review configuration at https://ledgerlab.rizbud.com
+> ([evidence](../../docs/evidence/G4-aws-deploy.md)).
 
 ## Shape
 

@@ -15,8 +15,9 @@ Alternatives kept working, not the target:
 
 > **Status (2026-10-01):** the production stack is verified locally with the exact
 > images and rules ([evidence](evidence/G4-deploy-rehearsal.md)). The AWS stacks
-> synthesize and pass assertion tests (`pnpm --filter @ledgerlab/infra-aws test`)
-> but have not been deployed: that needs an AWS account, a domain and Cloudflare.
+> synthesize and pass assertion tests (`pnpm --filter @ledgerlab/infra-aws test`).
+> **Live on AWS since 2026-10-02** (review configuration) at
+> https://ledgerlab.rizbud.com ([evidence](evidence/G4-aws-deploy.md)).
 
 ## Rehearse the production stack locally (one command)
 

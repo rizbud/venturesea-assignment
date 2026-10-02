@@ -100,8 +100,8 @@ frame-ancestors 'none'` (JSON responses are never documents).
       entries, append-only history, `POSTED → VOID` only); see `DATABASE.md`.
 - [ ] Private network only, encryption at rest/in transit, backups and a tested
       restore: RDS in isolated subnets, storage encryption, `PGSSLMODE=require`
-      and 7-day automated backups (asserted in `infra/aws/test`; not deployed
-      yet); the restore drill is in the infrastructure plan (G9).
+      and 7-day automated backups (asserted in `infra/aws/test`; live since
+      2026-10-02, see `evidence/G4-aws-deploy.md`); the restore drill is in the infrastructure plan (G9).
 
 Creating the role (once per environment, by an operator, password from the
 secret store; then deploy so `0003_app_role.sql` applies the grants):
