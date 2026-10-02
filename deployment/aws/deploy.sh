@@ -44,8 +44,10 @@ migrate() {
 echo "==> registry"
 cdk deploy LedgerLabRegistry
 
-ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
-REGISTRY="$ACCOUNT.dkr.ecr.$REGION.amazonaws.com"
+# Ask ECR for the registry host instead of assuming *.amazonaws.com (LocalStack differs).
+REGISTRY=$(aws ecr describe-repositories --repository-names ledgerlab/web \
+  --query 'repositories[0].repositoryUri' --output text)
+REGISTRY="${REGISTRY%/ledgerlab/web}"
 aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
 
 echo "==> images ($TAG)"

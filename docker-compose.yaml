@@ -19,5 +19,22 @@ services:
       timeout: 5s
       retries: 10
 
+  # Local AWS emulator for rehearsing the CDK deploy (deployment/aws/README.md).
+  #   docker compose --profile localstack up -d localstack
+  # Needs LOCALSTACK_AUTH_TOKEN in .env (free account). ECS tasks run as sibling
+  # containers through the Docker socket; emulated RDS listens on 4510-4559.
+  localstack:
+    profiles: [localstack]
+    image: localstack/localstack
+    ports:
+      - "127.0.0.1:4566:4566"
+      - "127.0.0.1:4510-4559:4510-4559"
+    environment:
+      LOCALSTACK_AUTH_TOKEN: ${LOCALSTACK_AUTH_TOKEN:-}
+    volumes:
+      - localstack:/var/lib/localstack
+      - /var/run/docker.sock:/var/run/docker.sock
+
 volumes:
   ledgerlab-db:
+  localstack:
