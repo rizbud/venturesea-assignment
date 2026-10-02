@@ -309,6 +309,8 @@ export class LedgerLabStack extends Stack {
       services: [{ portMappingName: "ledger-api", dnsName: "ledger-api", port: 4001 }],
     });
     const reporting = service("reporting-api", reportingTask, {});
+    // Service Connect goes task to task, so the ledger must admit reporting directly.
+    ledger.connections.allowFrom(reporting, ec2.Port.tcp(4001), "reporting-api via Service Connect");
     const web = service("web", webTask);
 
     const migrateSecurityGroup = new ec2.SecurityGroup(this, "MigrateSg", {

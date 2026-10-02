@@ -83,6 +83,15 @@ describe("LedgerLab stack", () => {
     template.hasResource("AWS::RDS::DBInstance", { DeletionPolicy: "Snapshot" });
   });
 
+  it("lets reporting-api reach ledger-api on 4001 (Service Connect is task to task)", () => {
+    template.hasResourceProperties("AWS::EC2::SecurityGroupIngress", {
+      IpProtocol: "tcp",
+      FromPort: 4001,
+      ToPort: 4001,
+      Description: "reporting-api via Service Connect",
+    });
+  });
+
   it("lets only Cloudflare reach the load balancer, on 443 only", () => {
     const groups = template.findResources("AWS::EC2::SecurityGroup", {
       Properties: { GroupDescription: "HTTPS from Cloudflare only" },
