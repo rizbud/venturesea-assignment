@@ -21,6 +21,9 @@ if ! command -v aws >/dev/null; then
   export -f aws
 fi
 
+# CDK caches LocalStack's fake-account lookups in cdk.context.json; put it back.
+trap 'git checkout -q -- infra/aws/cdk.context.json 2>/dev/null || rm -f infra/aws/cdk.context.json' EXIT
+
 pnpm --filter @ledgerlab/infra-aws exec cdk bootstrap "aws://000000000000/$AWS_REGION" -c region="$AWS_REGION"
 deployment/aws/deploy.sh
 
