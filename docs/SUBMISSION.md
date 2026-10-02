@@ -203,7 +203,7 @@ frame-ancestors 'none'`, `x-content-type-options: nosniff`,
 
 ## AI usage
 
-- **Entries in `docs/ai/prompt-log.jsonl`:** 37 (31 accepted, 2 edited, 2 rejected,
+- **Entries in `docs/ai/prompt-log.jsonl`:** 38 (32 accepted, 2 edited, 2 rejected,
   2 reverted).
 - **A prompt I rejected and why:** switching the default currency to IDR
   (proposed after "why using $ and not Rp?"). The developer kept USD; nothing
@@ -241,7 +241,7 @@ pnpm format:check   # PASS
 pnpm typecheck      # PASS (7/7)
 pnpm test           # PASS: 112 tests (shared 30, reporting 9, ledger 64 incl. Postgres, infra-aws 9), 0 skipped
 pnpm build          # PASS
-pnpm ai:verify      # PASS (37 entries)
+pnpm ai:verify      # PASS (38 entries)
 ```
 
 ## What I skipped and why
