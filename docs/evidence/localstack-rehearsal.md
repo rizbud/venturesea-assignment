@@ -32,18 +32,37 @@ per service.
 | Web task                                                | serves the SPA (`<title>LedgerLab</title>`)                                                                            |
 | Migration task                                          | ran as a one-off ECS task from the ledger image, exit 0, before any service started                                    |
 
-## What LocalStack could not show
+## Second run: the update path, and Service Connect stood in for
 
-| Gap                                                                                                                                                               | Evidence                                        | Real AWS                                                                                                       |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| **ECS Service Connect DNS**: reporting-api → `http://ledger-api:4001` timed out (`UPSTREAM_TIMEOUT`); `ledger-api` does not resolve inside the task (`EAI_AGAIN`) | `dns.lookup` from a reporting container         | Service Connect injects that name; the same call works in the compose rehearsal ([G4](G4-deploy-rehearsal.md)) |
-| Task counts: two services ran 3 tasks against a desired count of 2 after the scale-up                                                                             | `describe-services`                             | ECS enforces `desiredCount`                                                                                    |
-| Availability zones, Multi-AZ failover, NAT, the Cloudflare-only security group, the ACM DNS validation                                                            | single machine; certificates issued without DNS | proved only by the real deploy (go-live checklist)                                                             |
+`localstack.sh` again (commit `51acb4e`): **2 min 41 s**, exit 0, this time the
+existing-stack path. The migration task re-applied every migration to a database
+that already held data, then the services rolled to the new image. Afterwards
+the trial balance was unchanged (Dr 125,000 = Cr 125,000) and the new tasks
+served it.
 
-So the rehearsal proves the CloudFormation resources are created, the deploy
-order is right (migrate before any service runs, app role created by the
-migration), secrets reach the tasks, and the edge-facing rules hold. It does not
-prove internal service discovery or anything about availability.
+LocalStack accepts the Service Connect configuration (`describe-services` shows
+the `ledger-api` client alias) but registers nothing in Cloud Map, and tasks
+resolve names through Docker's embedded DNS (`127.0.0.11`), so `ledger-api` did
+not resolve (`EAI_AGAIN`) and reporting timed out. `localstack.sh` now gives the
+ledger containers the Docker network alias `ledger-api` after the deploy, which
+is what Service Connect provides on AWS. The stacks are unchanged. With it,
+through the ALB on `reports.`: income statement revenue 125,000; balance sheet
+assets 125,000 = equity 125,000; dashboard 1 entry. That is reporting-api calling
+ledger-api with the internal token from Secrets Manager, ledger-api reading RDS.
+
+## What LocalStack still cannot show
+
+| Gap                                                                                                                                                                       | Evidence                                        | Real AWS                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------- |
+| Service Connect itself (the Envoy proxy, retries, its health-based routing)                                                                                               | stood in for by a Docker alias, see above       | proved only by the real deploy                                            |
+| Task counts: after the 0 → 2 scale-up two services ran 3 tasks; after the roll each service kept one old-image task. `update-service --desired-count 2` did not reconcile | `describe-services`, `docker ps`                | ECS stops surplus tasks; `desiredCount` 2 is asserted in `infra/aws/test` |
+| Availability zones, Multi-AZ failover, NAT, the Cloudflare-only security group (no network enforcement), ACM DNS validation                                               | single machine; certificates issued without DNS | proved only by the real deploy (go-live checklist)                        |
+
+So the rehearsal proves the CloudFormation resources are created, both deploy
+paths run in the right order (migrate before services change; the app role
+comes from the migration; re-applied migrations keep data), secrets reach the
+tasks, the edge-facing rules hold, and every request path works. It does not
+prove anything about availability or the network rules.
 
 ## Fixed because of this run
 
