@@ -43,6 +43,10 @@ describe("LedgerLab stack", () => {
     const review = synth({ review: true });
     review.resourceCountIs("AWS::EC2::NatGateway", 0);
     review.hasResourceProperties("AWS::EC2::Instance", { InstanceType: "t4g.micro", SourceDestCheck: false });
+    // The NAT setup script expects the minimal image (dnf + ip, no net-tools).
+    review.hasParameter("*", {
+      Default: "/aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-6.1-arm64",
+    });
     review.hasResourceProperties("AWS::RDS::DBInstance", { MultiAZ: false, DeletionProtection: false });
     review.hasResourceProperties("AWS::ECS::TaskDefinition", {
       Cpu: "256",

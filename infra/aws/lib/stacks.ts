@@ -71,6 +71,22 @@ export interface LedgerLabStackProps extends StackProps {
   review?: boolean;
 }
 
+/** NAT setup with tools the AL2023 minimal image has (dnf, ip); stops on any failure. */
+function natUserData() {
+  const userData = ec2.UserData.forLinux();
+  userData.addCommands(
+    "set -euxo pipefail",
+    "dnf install -y iptables-services",
+    "echo 'net.ipv4.ip_forward=1' > /etc/sysctl.d/90-nat.conf",
+    "sysctl -p /etc/sysctl.d/90-nat.conf",
+    "iptables -t nat -A POSTROUTING -o \"$(ip route show default | awk '{print $5; exit}')\" -j MASQUERADE",
+    "iptables -F FORWARD",
+    "iptables-save > /etc/sysconfig/iptables",
+    "systemctl enable --now iptables",
+  );
+  return userData;
+}
+
 /**
  * Production on ECS Fargate: Cloudflare -> ALB (Cloudflare IPs only) -> web,
  * ledger-api, reporting-api (2+ tasks each, private subnets) -> RDS Postgres 16
@@ -90,7 +106,11 @@ export class LedgerLabStack extends Stack {
       ? ec2.NatProvider.instanceV2({
           // nano (512 MB) runs out of memory in the setup script's dnf install.
           instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.MICRO),
-          machineImage: ec2.MachineImage.latestAmazonLinux2023({ cpuType: ec2.AmazonLinuxCpuType.ARM_64 }),
+          // User data runs once per instance: changing the image is what replaces a broken NAT.
+          machineImage: ec2.MachineImage.fromSsmParameter(
+            "/aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-6.1-arm64",
+          ),
+          userData: natUserData(),
           // The CDK default admits all inbound IPv4; only the VPC may route through it.
           defaultAllowedTraffic: ec2.NatTrafficDirection.OUTBOUND_ONLY,
         })
