@@ -408,11 +408,12 @@ export class GithubDeployStack extends Stack {
         resources: [`arn:aws:iam::${account}:role/cdk-*`],
       }),
     );
-    // deploy.sh: push images, read stack outputs, run and watch the migration task.
+    // deploy.sh: find the registry, push images, read stack outputs, run and watch the migration task.
     role.addToPolicy(new iam.PolicyStatement({ actions: ["ecr:GetAuthorizationToken"], resources: ["*"] }));
     role.addToPolicy(
       new iam.PolicyStatement({
         actions: [
+          "ecr:DescribeRepositories",
           "ecr:BatchCheckLayerAvailability",
           "ecr:BatchGetImage",
           "ecr:InitiateLayerUpload",
