@@ -1,12 +1,12 @@
 # Infrastructure plan
 
-|                        |                                                                                                 |
-| ---------------------- | ----------------------------------------------------------------------------------------------- |
-| **Author**             | Rizki Budi                                                                                      |
-| **Date**               | 2026-10-01                                                                                      |
-| **Target environment** | AWS ECS Fargate + RDS, Jakarta (`ap-southeast-3`), behind Cloudflare                            |
-| **Status**             | Review: rehearsed locally end to end; CDK stacks tested; AWS account and domain not provisioned |
-| **Related**            | [`SECURITY.md`](SECURITY.md), [`DEPLOYMENT.md`](DEPLOYMENT.md), [`DATABASE.md`](DATABASE.md)    |
+|                        |                                                                                                                             |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **Author**             | Rizki Budi                                                                                                                  |
+| **Date**               | 2026-10-01                                                                                                                  |
+| **Target environment** | AWS ECS Fargate + RDS, Jakarta (`ap-southeast-3`), behind Cloudflare                                                        |
+| **Status**             | Review: live on AWS since 2026-10-02 in the review configuration ([evidence](evidence/G4-aws-deploy.md)); CDK stacks tested |
+| **Related**            | [`SECURITY.md`](SECURITY.md), [`DEPLOYMENT.md`](DEPLOYMENT.md), [`DATABASE.md`](DATABASE.md)                                |
 
 Every number in this document is either measured (with a link to the evidence) or
 marked **estimate** with the assumption stated. AWS prices are the on-demand
@@ -102,9 +102,10 @@ behind a round-robin load balancer, dashboard) runs locally from
 [G4 evidence](evidence/G4-deploy-rehearsal.md). The AWS stacks synthesize (86
 resources) and their key properties are asserted by tests
 (`infra/aws/test/stacks.test.ts`: 2 tasks per service, Cloudflare-only ingress,
-secrets never in plain environment, RDS settings). They are not yet deployed
-(no AWS account or domain on the build machine). That is the first item of §6's
-go-live checklist.
+secrets never in plain environment, RDS settings). They have been live
+since 2026-10-02 in the review configuration (NAT instance, single-AZ RDS;
+[G4 evidence](evidence/G4-aws-deploy.md)), which covers the first two items of
+§6's go-live checklist.
 
 ## 4. Environments
 
@@ -201,7 +202,7 @@ data into less-protected places.
 | Backup frequency / retention   | Continuous / 7 days; daily / 35 days         | RDS automated backups; scheduled `pg_dump` task → R2 with a lifecycle rule                                |
 | Restore drill result           | 17 s end to end, identical fingerprints      | [evidence/G9-restore-drill.md](evidence/G9-restore-drill.md) (local, Postgres 16, 1 year of data)         |
 
-**Go-live checklist (needs the real accounts; in this order):**
+**Go-live checklist (in this order; steps 1 and 2 done on 2026-10-02 in the review configuration, 3 to 5 open):**
 
 1. AWS account with `ap-southeast-3` enabled, a budget alarm, `cdk bootstrap`;
    domain on Cloudflare. Then `deployment/aws/deploy.sh` (first run: ACM DNS
@@ -327,16 +328,16 @@ and alerts if it is not 0.
 The full checklist with evidence is [`SECURITY.md`](SECURITY.md); this is the
 summary the bank asked for.
 
-| Control                           | Implemented                                  | Evidence                                                                                            |
-| --------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| No secrets in git                 | Yes                                          | `SECURITY.md` §1; history scan                                                                      |
-| `/api/internal/*` blocked at edge | Configured, not yet live (needs domain)      | `deployment/cloudflare/README.md` §3; token guard live: `ledger-api.test.ts` "guards /api/internal" |
-| CORS restricted                   | Yes; boot fails on `*` in production         | `http.test.ts`; `SECURITY.md` §3                                                                    |
-| HSTS + secure headers             | Yes (APIs and dashboard)                     | [G5 evidence](evidence/G5-security.md#api-security-headers); `deployment/nginx.conf.template`       |
-| Rate limiting on `/api/*`         | App limiter live; Cloudflare rule configured | [G5 evidence](evidence/G5-security.md#rate-limit); cloudflare README §4                             |
-| DB least-privilege user           | Yes                                          | `0003_app_role.sql`; denial tests in `repository-contract.test.ts`                                  |
-| Origin locked to Cloudflare       | Yes: ALB IP allow-list + origin secret       | `requireOriginSecret` + tests; Cloudflare-only ingress asserted in `infra/aws/test`                 |
-| Tested restore                    | Yes (local); RDS PITR drill at go-live       | [G9 restore drill](evidence/G9-restore-drill.md)                                                    |
+| Control                           | Implemented                                                 | Evidence                                                                                           |
+| --------------------------------- | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| No secrets in git                 | Yes                                                         | `SECURITY.md` §1; history scan                                                                     |
+| `/api/internal/*` blocked at edge | Yes: Cloudflare custom rule returns 403                     | [G6 evidence](evidence/G6-cloudflare.md); token guard: `ledger-api.test.ts` "guards /api/internal" |
+| CORS restricted                   | Yes; boot fails on `*` in production                        | `http.test.ts`; `SECURITY.md` §3                                                                   |
+| HSTS + secure headers             | Yes (APIs and dashboard)                                    | [G5 evidence](evidence/G5-security.md#api-security-headers); `deployment/nginx.conf.template`      |
+| Rate limiting on `/api/*`         | Yes: Cloudflare rule (50 / 10 s per IP) and the app limiter | [G6 evidence](evidence/G6-cloudflare.md); [G5 evidence](evidence/G5-security.md#rate-limit)        |
+| DB least-privilege user           | Yes                                                         | `0003_app_role.sql`; denial tests in `repository-contract.test.ts`                                 |
+| Origin locked to Cloudflare       | Yes: ALB IP allow-list + origin secret                      | `requireOriginSecret` + tests; Cloudflare-only ingress asserted in `infra/aws/test`                |
+| Tested restore                    | Yes (local); RDS PITR drill at go-live                      | [G9 restore drill](evidence/G9-restore-drill.md)                                                   |
 
 ## 12. Cost model
 

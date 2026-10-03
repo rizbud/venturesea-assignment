@@ -179,7 +179,8 @@ frame-ancestors 'none'`, `x-content-type-options: nosniff`,
 ## Infrastructure plan (G9)
 
 - **Document:** [`INFRASTRUCTURE-PLAN.md`](INFRASTRUCTURE-PLAN.md), complete;
-  status "Review" until the real deploy exists.
+  status "Review" while the live stack runs the review configuration (NAT
+  instance, single-AZ RDS; [evidence](evidence/G4-aws-deploy.md)).
 - **Topology in one sentence:** Cloudflare → ALB (Cloudflare IPs only) in AWS
   Jakarta → ECS Fargate, 2+ tasks each of web, ledger-api and reporting-api in
   private subnets → RDS Postgres 16 Multi-AZ in isolated subnets, secrets from
@@ -220,7 +221,7 @@ frame-ancestors 'none'`, `x-content-type-options: nosniff`,
 
 ## AI usage
 
-- **Entries in `docs/ai/prompt-log.jsonl`:** 38 (32 accepted, 2 edited, 2 rejected,
+- **Entries in `docs/ai/prompt-log.jsonl`:** 44 (38 accepted, 2 edited, 2 rejected,
   2 reverted).
 - **A prompt I rejected and why:** switching the default currency to IDR
   (proposed after "why using $ and not Rp?"). The developer kept USD; nothing
@@ -258,14 +259,18 @@ pnpm format:check   # PASS
 pnpm typecheck      # PASS (7/7)
 pnpm test           # PASS: 112 tests (shared 30, reporting 9, ledger 64 incl. Postgres, infra-aws 9), 0 skipped
 pnpm build          # PASS
-pnpm ai:verify      # PASS (38 entries)
+pnpm ai:verify      # PASS (44 entries, re-run 2026-10-03)
 ```
 
 ## What I skipped and why
 
-- **The real AWS deploy and Cloudflare:** they need an AWS account, a domain
-  and a Cloudflare account the build machine did not have. Everything up to the account
-  boundary is built, rehearsed and documented; no URL or screenshot is faked.
+- **The production configuration on AWS:** the live stack runs `REVIEW=true`
+  (one NAT instance, single-AZ RDS, a smaller ledger task) to keep a short-lived
+  review cheap. Services, replicas, subnets, the Cloudflare-only ALB and the
+  secrets are the production ones; going live is deleting the variable and
+  running Deploy again ([evidence](evidence/G4-aws-deploy.md)).
+- **Alarms and uptime monitoring:** CloudWatch alarms and an external monitor on
+  both `/health` URLs are not set up yet (M1 in the next-phase plan).
 - **Authentication and multi-tenancy:** out of scope for the test, and the
   biggest real gap; planned as M2 with ADRs.
 - **Legacy SQLite import:** no legacy schema or file is in the repository; the
@@ -276,7 +281,8 @@ pnpm ai:verify      # PASS (38 entries)
 
 ## If I had more time
 
-1. Deploy to AWS, put Cloudflare in front and run the PITR and failover drills (M1).
+1. Switch the live stack to the production configuration (NAT gateway, Multi-AZ
+   RDS) and run the PITR and failover drills on it (M1).
 2. Schedule the nightly `ledger_rollup_drift` check and the off-site backup.
 3. Structured JSON logs and alerting per the infrastructure plan.
 4. OIDC + `business_id` with row-level security, then the audit log.
